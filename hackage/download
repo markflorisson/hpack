@@ -1,0 +1,29 @@
+#!/bin/bash
+
+if [ ! -e metadata ]; then
+    # initialize package metadata directory
+    mkdir metadata # package metadata directory
+    wget https://hackage.haskell.org/01-index.tar.gz
+    tar -xzf 01-index.tar.gz -C metadata
+fi
+
+if [ -e packages ]; then
+    rm list
+else
+    mkdir packages # downloaded package directory
+    touch list     # list of packages already downloaded
+fi
+
+for pkg in $(ls metadata); do
+    echo "Downloading $pkg"
+    for version in $(ls "metadata/$pkg"); do
+        # skip already downloaded packages
+        if [ ! $(grep "|$pkg-$version|" list >/dev/null) ]; then
+            echo "    $version"
+            # download package to packages/ directory
+            (cd packages ; cabal get "$pkg-$version") && \
+            # add package to downloaded list
+            echo "|$pkg-$version|" >>list
+        fi
+    done
+done
