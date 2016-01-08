@@ -259,3 +259,18 @@ This doesn't work for me.
 # Recent Talks about Packages/Modules in Haskelll
 
 [ICFP](https://wiki.haskell.org/HaskellImplementorsWorkshop/2015#.22Look_Ma.2C_No_Signatures.21.22_Separate_modular_development_without_interfaces)
+
+
+# Parsing Cabal Files
+
+We can use ``Distribution.PackageDescription`` to parse Cabal files:
+
+    [PackageDescription](https://www.haskell.org/cabal/release/cabal-latest/doc/API/Cabal/)
+
+In ``Distribution.PackageDescription.Parse``:
+
+    readPackageDescription
+        :: Verbosity -> FilePath -> IO GenericPackageDescription
+
+``Distribution.Verbosity`` has the flags (``normal``,
+``verbose``, ``silent``, etc).

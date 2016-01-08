@@ -1,3 +1,5 @@
+module Main where
+
 import GHC
     ( getSessionDynFlags, setSessionDynFlags
     , runGhc, Ghc, GhcMonad
