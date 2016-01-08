@@ -2,7 +2,7 @@
 
 Usage:
 
-    loadCabal
+    loadCabal myPkg.cabal
 
 -}
 module Main where

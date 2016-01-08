@@ -37,4 +37,5 @@ library
                        HPack.Cabal
                        HPack.PkgDB
                        HPack.Iface
-                       HPack.Sandbox
+                       HPack.SourceRepo
+                       HPack.Infer

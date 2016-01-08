@@ -2,6 +2,7 @@ module HPack.Package
 ( PkgInfo(..)
 , Pkg(..)
 , PkgRef(..)
+, PkgSource(..)
 , ModulePath(..)
 , VersionRange(..)
 , printPkgInfo
@@ -11,6 +12,8 @@ module HPack.Package
 import Data.List (intercalate)
 import Data.Version (Version(..))
 
+-- | Elaborrate information about a package's dependencies, e.g. as
+-- parsed from a .cabal file
 data PkgInfo
     = PkgInfo
         {
@@ -30,10 +33,21 @@ data PkgInfo
         , exposedMods    :: [ModulePath]
         }
 
+-- | A package name and version pair
 data Pkg        = Pkg String Version
+
+-- | Reference to a package through a version range
+-- (e.g. from a .cabal file)
 data PkgRef     = PkgRef { pkgName :: String, pkgVersion :: VersionRange }
+
+-- | Path to a module within some package
 data ModulePath = ModulePath [String]
 
+-- | Location of the source code for a given package
+data PkgSource = PkgSource Pkg FilePath
+
+
+-- | Range of versions
 data VersionRange
     = AnyVersion
     | This Version
