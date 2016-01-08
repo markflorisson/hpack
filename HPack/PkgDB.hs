@@ -1,7 +1,8 @@
 module HPack.PkgDB where
 
 import Data.Map (Map, lookup, insert)
-import HPack.Cabal (PkgInfo(..), Pkg(..), ModulePath, loadCabalFile, printPkgInfo)
+import HPack.Package (PkgInfo(..), Pkg(..), ModulePath, printPkgInfo)
+import HPack.Iface (ModIface(..))
 
 newtype PkgId   = PkgId Int
 newtype PkgHash = PkgHash Int

@@ -1,9 +1,10 @@
 module HPack.Sandbox where
 
-import HPack.PkgDB (PkgDB, PkgId, addPkg)
+import HPack.PkgDB (PkgDB, PkgId)
 
 import Control.Monad.Trans.State
 
+{-
 data SandboxState = Sandbox FilePath PkgSet
 
 type Sandbox = StateT SandboxState IO
@@ -18,3 +19,4 @@ registerPkg :: PkgId -> Sandbox ()
 -- On success, returns a new PkgId for the package along with an updated
 -- PkgSet
 tryCompile :: Pkg -> Sandbox PkgId
+-}
