@@ -3,7 +3,7 @@
 if [ ! -e metadata ]; then
     # initialize package metadata directory
     mkdir metadata # package metadata directory
-    wget https://hackage.haskell.org/01-index.tar.gz
+    wget https://hackage.haskell.org/01-index.tar.gz --no-check-certificate
     tar -xzf 01-index.tar.gz -C metadata
 fi
 
