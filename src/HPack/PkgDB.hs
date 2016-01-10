@@ -3,9 +3,15 @@
 module HPack.PkgDB where
 
 import Data.Map (Map, lookup, insert)
+import Control.Monad
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (StateT, runStateT, put, get, modify)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE, catchE)
+
+import System.Directory
+import System.FilePath
+import System.IO.Temp (createTempDirectory)
 
 import HPack.Package (PkgInfo(..), Pkg(..), PkgSource(..)
                      , ModulePath, printPkgInfo)
@@ -14,6 +20,8 @@ import HPack.Iface (ModIface(..))
 data DBErr
     -- | some IOError has occurred
     = DBInitError IOError
+    -- | the sources for some package couldn't be found
+    | DBPkgNotFound
 
 type DB = ExceptT DBErr (StateT PkgDB IO)
 
@@ -47,15 +55,52 @@ savePkgDB = undefined
 
 ---------------------------------------------------------
 
+--whenM :: Monad m => m Bool -> m () -> m ()
+whenM s r = s >>= flip when r
+
+getFilesAndFolders :: FilePath -> IO [FilePath]
+getFilesAndFolders path =
+    filter (`notElem` [".", ".."]) <$> getDirectoryContents path
+
+-- | `cloneDir src dest` clones the directory at the location pointed at
+--   by `src` to `dest`.
+cloneDir :: FilePath -> FilePath -> DB ()
+cloneDir src dest = do
+    -- the source directory must exist
+    whenM (liftIO $ not <$> doesDirectoryExist src) $
+        throwE DBPkgNotFound
+
+    -- get the contents of the source directory and create the
+    -- target directory, if required
+    fs <- liftIO $ do
+        whenM (not <$> doesDirectoryExist dest) $
+            createDirectory dest
+
+        -- list the contents of the directory
+        getFilesAndFolders src
+
+    -- copy all the files and folders
+    forM_ fs $ \name -> do
+        let srcPath = src </> name
+        let dstPath = dest </> name
+
+        isDir <- liftIO $ doesDirectoryExist srcPath
+
+        if isDir
+        then cloneDir srcPath dstPath
+        else liftIO $ copyFile srcPath dstPath
+
 -- | Try to compile the package against the given dependencies.
 -- On success, returns a new PkgId for the package, and update the
 -- PkgDB
 tryCompile :: PkgSource -> [PkgId] -> DB PkgId
 tryCompile (PkgSource pkg pkgLocation) dependencies = do
     -- 1) allocate temporary directory
-    tmpDir <- undefined
+    -- TODO: where should we create the temporary directory?
+    tmpDir <- liftIO $ createTempDirectory "." "hpack"
 
     -- 2) copy package sources into temporary directory
+    cloneDir pkgLocation tmpDir
 
     -- 3) replace cabal file with specific package versions to match
     --    the versions from Candidate
