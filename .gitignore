@@ -1,0 +1,9 @@
+.cabal-sandbox/
+dist/
+
+hackage/01-index.tar.gz
+hackage/list
+hackage/metadata/
+hackage/packages/
+
+cabal.sandbox.config

@@ -55,7 +55,7 @@ savePkgDB = undefined
 
 ---------------------------------------------------------
 
---whenM :: Monad m => m Bool -> m () -> m ()
+whenM :: Monad m => m Bool -> m () -> m ()
 whenM s r = s >>= flip when r
 
 getFilesAndFolders :: FilePath -> IO [FilePath]
