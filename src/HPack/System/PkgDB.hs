@@ -1,25 +1,28 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module HPack.PkgDB where
+module HPack.System.PkgDB where
 
 import Data.Map (Map, lookup, insert)
-import Control.Monad
+import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (StateT, runStateT, put, get, modify)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE, catchE)
 
 import System.Directory
-import System.FilePath
+    (createDirectory, getDirectoryContents, doesDirectoryExist, copyFile)
+import System.FilePath ((</>))
 import System.IO.Temp (createTempDirectory)
 
-import HPack.Package (PkgInfo(..), Pkg(..), PkgSource(..)
-                     , ModulePath, printPkgInfo)
-import HPack.Iface (ModIface(..))
+import HPack.Source.SourceRepo (SourceRepo, getSourceForPkg)
+import HPack.Source.Package (Pkg(..), ModulePath)
+import HPack.Utils (whenM, raiseEither)
 
 data DBErr
     -- | some IOError has occurred
     = DBInitError IOError
+    -- | Error downloading package sources
+    | SourceDownloadError IOError
     -- | the sources for some package couldn't be found
     | DBPkgNotFound
 
@@ -32,6 +35,7 @@ newtype PkgId = PkgId Int
     -- this should probably not be an int but a SHA256 hash or something
     deriving (Ord, Eq, Show)
 
+-- | Database of packages that are compiled on the system
 data PkgDB = PkgDB
     { dbLocation :: FilePath          -- ^ package db location on disk
     , pkgInfo    :: Map PkgId Pkg     -- ^ package name and version for
@@ -54,9 +58,6 @@ savePkgDB :: DB ()
 savePkgDB = undefined
 
 ---------------------------------------------------------
-
-whenM :: Monad m => m Bool -> m () -> m ()
-whenM s r = s >>= flip when r
 
 getFilesAndFolders :: FilePath -> IO [FilePath]
 getFilesAndFolders path =
@@ -93,8 +94,13 @@ cloneDir src dest = do
 -- | Try to compile the package against the given dependencies.
 -- On success, returns a new PkgId for the package, and update the
 -- PkgDB
-tryCompile :: PkgSource -> [PkgId] -> DB PkgId
-tryCompile (PkgSource pkg pkgLocation) dependencies = do
+tryCompile :: SourceRepo -> Pkg -> [PkgId] -> DB PkgId
+tryCompile srcRepo pkg dependencies = do
+    -- 0) Download package sources
+    -- getSourceForPkg :: SourceRepo -> Pkg -> IO (Either IOError FilePath)
+    pkgLocation <- raiseEither SourceDownloadError =<<
+        liftIO (getSourceForPkg srcRepo pkg)
+
     -- 1) allocate temporary directory
     -- TODO: where should we create the temporary directory?
     tmpDir <- liftIO $ createTempDirectory "." "hpack"

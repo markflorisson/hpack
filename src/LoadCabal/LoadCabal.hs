@@ -7,13 +7,11 @@ Usage:
 -}
 module Main where
 
-import Control.Monad (when)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
-import Data.Version (Version(..))
 
-import HPack.Package (PkgInfo(..), printPkgInfo)
-import HPack.Cabal (loadCabalFromFile)
+import HPack.Source (Version(..))
+import HPack.Cabal (printCabalPkg, loadCabalFromFile)
 
 ghcVersion :: Version
 ghcVersion = Version [7, 10, 1] []
@@ -23,6 +21,6 @@ main = do
     args <- getArgs
     case args of
         [arg] -> loadCabalFromFile ghcVersion arg
-                 >>= printPkgInfo
+                 >>= printCabalPkg
         _     -> putStrLn "Expected a .cabal filename argument"
                  >> exitFailure

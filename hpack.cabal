@@ -21,7 +21,7 @@ executable extractIface
   main-is:             ExtractIface.hs
   -- other-modules:
   -- other-extensions:
-  build-depends:       base, hpack
+  build-depends:       base, hpack, transformers
   -- hs-source-dirs:
   default-language:    Haskell2010
 
@@ -32,14 +32,25 @@ executable loadCabal
   default-language:    Haskell2010
 
 library
-  hs-source-dirs:      src 
+  hs-source-dirs:      src
   default-language:    Haskell2010
   build-depends:       base, ghc, ghc-paths, transformers, Cabal,
-                       filepath <= 1.3.0.1, containers, temporary < 1.1.2.5,
-                       directory <= 1.2.2.0
-  exposed-modules:     HPack.Package
+                       filepath, containers, temporary, vector,
+                       directory, ghc-tcplugins-extra
+  exposed-modules:     HPack.Source
                        HPack.Cabal
-                       HPack.PkgDB
-                       HPack.Iface
-                       HPack.SourceRepo
+                       HPack.Build
+                       HPack.System
                        HPack.Infer
+                       HPack.Solver
+  other-modules:       HPack.Source.Package
+                       HPack.Source.SourceRepo
+                       HPack.Cabal.Cabal
+                       HPack.Cabal.CabalRepo
+                       -- HPack.Build.*
+                       HPack.System.PkgDB
+                       HPack.System.Plan
+                       HPack.Infer.Iface
+                       HPack.Infer.Infer
+                       HPack.Infer.IfaceRepo
+                       HPack.Solver.Solve

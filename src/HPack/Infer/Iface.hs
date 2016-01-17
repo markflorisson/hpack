@@ -1,15 +1,15 @@
-module HPack.Iface
+module HPack.Infer.Iface
 ( IfaceM
 , Err(..)
 , ModName
 , ModIface
 , runIfaceM
+, liftGhc
 , mainCompile
 , mainLoadIface
 , compileAndLoadIface
 , showModIface
-)
-where
+) where
 
 import GHC
     ( getSessionDynFlags, setSessionDynFlags
@@ -28,6 +28,8 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE, catchE)
 import Control.Monad.Trans.Class (lift)
 
+import HPack.Ghc
+
 type ModName = String
 
 data Err
@@ -36,6 +38,9 @@ data Err
 
 type IfaceM = ExceptT Err Ghc
 
+liftGhc :: Ghc a -> IfaceM a
+liftGhc = lift
+
 -- | Run the IfaceM monad
 runIfaceM :: IfaceM a -> IO (Either Err a)
 runIfaceM = defaultErrorHandler defaultFatalMessager defaultFlushOut
@@ -43,9 +48,11 @@ runIfaceM = defaultErrorHandler defaultFatalMessager defaultFlushOut
           . runExceptT
 
 -- | First compile the package, then load the interface
-compileAndLoadIface :: ModName -> IfaceM ModIface
-compileAndLoadIface modName
-    = mainCompile modName >> mainLoadIface modName
+compileAndLoadIface :: ModName -> Bool -> IfaceM ModIface
+compileAndLoadIface modName isMain
+    = do liftIO $ putStrLn $ "Loading module: " ++ modName
+         let ifaceName = if isMain then "Main" else modName
+         mainCompile modName >> mainLoadIface modName
 
 ---------------------------------------------------------
 
@@ -60,8 +67,6 @@ mainCompile modName = do
 
 compileTarget :: ModName -> Ghc SuccessFlag
 compileTarget modName = do
-    -- dflags <- getSessionDynFlags
-    -- setSessionDynFlags dflags
     initDynFlags
     target <- guessTarget modName Nothing
     setTargets [target]
@@ -87,23 +92,8 @@ loadIface modName = do
 
 ---------------------------------------------------------
 
-initDynFlags :: Ghc ()
-initDynFlags = void $ setSessionDynFlags =<< getDynFlags
-
-getDynFlags :: Ghc DynFlags
-getDynFlags = getSessionDynFlags
-
----------------------------------------------------------
-
-ghcShow :: Outputable a => a -> Ghc String
-ghcShow x = do
-    dynflags <- getDynFlags
-    return $ showSDoc dynflags $ ppr x
-
 showModIface :: ModIface -> IfaceM String
-showModIface modIface = lift $ do
-    dynflags <- getDynFlags
-    return $ showSDoc dynflags $ pprModIface modIface
+showModIface modIface = liftGhc $ ghcShowSDoc $ pprModIface modIface
 
 instance Show Err where
     show (CompileErr m) = "Failed to compile " ++ m ++ "."
