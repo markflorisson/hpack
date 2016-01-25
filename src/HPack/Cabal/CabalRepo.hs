@@ -2,16 +2,21 @@ module HPack.Cabal.CabalRepo
 ( CabalRepo(..), CabalError(..)
 , CabalRepoM, runCabalRepoM
 , openCabalRepo, loadCabalFromPkg
+, listCabalPkgs
 ) where
 
+import Text.ParserCombinators.ReadP (readP_to_S)
+import Data.Version (Version, parseVersion)
 import System.FilePath ((</>))
-import System.Directory (doesDirectoryExist)
+import System.Directory (doesDirectoryExist, getDirectoryContents)
 import System.IO.Error (tryIOError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
+import Data.Maybe (mapMaybe)
 
 import HPack.Source (Pkg(..), ModulePath(..), Version, showVersion)
 import HPack.Cabal.Cabal (CabalPkg(..), CompilerVersion, loadCabalFromFile)
+import HPack.Config (Config(..))
 import HPack.Utils (whenM, raiseEither)
 
 data CabalError
@@ -38,13 +43,25 @@ openCabalRepo path = do
         throwE $ CabalRepoNotFound path
     return $ CabalRepo path
 
-loadCabalFromPkg :: MonadIO m => CabalRepo -> CompilerVersion -> Pkg
+loadCabalFromPkg :: MonadIO m => CabalRepo -> Config -> Pkg
                  -> CabalRepoM m CabalPkg
-loadCabalFromPkg repo version pkg = do
+loadCabalFromPkg repo config pkg = do
     let fn = getCabalFilename repo pkg
-    eitherCabalPkg <- liftIO $ tryIOError $ loadCabalFromFile version fn
+    eitherCabalPkg <- liftIO $ tryIOError $ loadCabalFromFile config fn
     raiseEither CabalIOError eitherCabalPkg
 
 getCabalFilename :: CabalRepo -> Pkg -> FilePath
 getCabalFilename (CabalRepo path) (Pkg name version)
-    = "metadata" </> name </> showVersion version </> (name ++ ".cabal")
+    = path </> "metadata" </> name </> showVersion version </> (name ++ ".cabal")
+
+listCabalPkgs :: CabalRepo -> String -> IO [Pkg]
+listCabalPkgs (CabalRepo path) pkgName = do
+    versionStrings <- getDirectoryContents (path </> "metadata" </> pkgName)
+    let versions = mapMaybe readVersion versionStrings
+    return (map (Pkg pkgName) versions)
+
+readVersion :: String -> Maybe Version
+readVersion versionString =
+    case readP_to_S parseVersion versionString of
+        (version, _):xs -> Just version
+        _            -> Nothing

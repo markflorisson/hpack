@@ -10,7 +10,7 @@ import Control.Monad.Trans.State (StateT, runStateT, put, get, modify)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE, catchE)
 
 import System.Directory
-    (createDirectory, getDirectoryContents, doesDirectoryExist, copyFile)
+    (createDirectoryIfMissing, getDirectoryContents, doesDirectoryExist, copyFile)
 import System.FilePath ((</>))
 import System.IO.Temp (createTempDirectory)
 
@@ -74,8 +74,7 @@ cloneDir src dest = do
     -- get the contents of the source directory and create the
     -- target directory, if required
     fs <- liftIO $ do
-        whenM (not <$> doesDirectoryExist dest) $
-            createDirectory dest
+        createDirectoryIfMissing False dest
 
         -- list the contents of the directory
         getFilesAndFolders src
@@ -94,12 +93,10 @@ cloneDir src dest = do
 -- | Try to compile the package against the given dependencies.
 -- On success, returns a new PkgId for the package, and update the
 -- PkgDB
-tryCompile :: SourceRepo -> Pkg -> [PkgId] -> DB PkgId
+tryCompile :: SourceRepo -> Pkg -> [PkgId] -> DB (SourceRepo, PkgId)
 tryCompile srcRepo pkg dependencies = do
     -- 0) Download package sources
-    -- getSourceForPkg :: SourceRepo -> Pkg -> IO (Either IOError FilePath)
-    pkgLocation <- raiseEither SourceDownloadError =<<
-        liftIO (getSourceForPkg srcRepo pkg)
+    (srcRepo', pkgLocation) <- liftIO (getSourceForPkg srcRepo pkg)
 
     -- 1) allocate temporary directory
     -- TODO: where should we create the temporary directory?
@@ -131,7 +128,7 @@ tryCompile srcRepo pkg dependencies = do
     -- ghc-pkg register / cabal install
 
     -- 9) done :)
-    return pkgId
+    return (srcRepo', pkgId)
 
 -- | Compute the hash for the package, given its name, version and
 -- a list of its compiled dependencies

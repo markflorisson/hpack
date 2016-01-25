@@ -7,6 +7,7 @@ module HPack.Cabal.Cabal
 , CompilerVersion
 , loadCabalFromFile
 , printCabalPkg
+, withinRange
 ) where
 
 import Data.List (intercalate)
@@ -26,6 +27,7 @@ import Distribution.System (Platform(..), Arch, OS, buildPlatform)
 import Distribution.Compiler (CompilerFlavor(GHC))
 import Distribution.ModuleName (components)
 
+import HPack.Config (Config(..), CompilerVersion)
 import HPack.Source (Pkg(..), ModulePath(..), Version, showVersion)
 
 -- | Elaborate information about the dependencies of a package as parsed
@@ -56,24 +58,17 @@ data CabalPkgRef
         , pkgVersion :: VersionRange
         }
 
--- | Range of versions
-data VersionRange
-    = AnyVersion
-    | This Version
-    | Later Version
-    | Earlier Version
-    | Union VersionRange VersionRange
-    | Intersection VersionRange VersionRange
+type VersionRange = V.VersionRange
 
-type CompilerVersion = Version
+withinRange = V.withinRange
 
-loadCabalFromFile :: CompilerVersion -> FilePath -> IO CabalPkg
-loadCabalFromFile compilerVersion fileName = do
+loadCabalFromFile :: Config -> FilePath -> IO CabalPkg
+loadCabalFromFile config fileName = do
     pkgGenDesc <- parseCabalFile fileName
     let pkgDesc = packageDescription pkgGenDesc
     let name    = P.unPackageName $ P.pkgName $ package pkgDesc
     let version = P.pkgVersion $ package pkgDesc
-    let ctx     = Ctx buildPlatform compilerVersion
+    let ctx     = Ctx buildPlatform config
     return CabalPkg
         { name
             = name
@@ -103,7 +98,7 @@ getExposedModules pkgGenDesc = fromMaybe [] $ do
 
 ---------------------------------------------------------
 
-data Ctx = Ctx { platform :: Platform, compilerVersion :: Version}
+data Ctx = Ctx { platform :: Platform, config :: Config }
 
 getDeps :: Ctx -> CondTree ConfVar [Dependency] a -> [CabalPkgRef]
 getDeps ctx (CondNode _ deps cs)
@@ -141,8 +136,8 @@ evalConfVar (Ctx (Platform arch os) _) (Arch arch')
 evalConfVar ctx (Flag flagName)
     = False -- TODO: initialize with defaults
             -- (see https://www.haskell.org/cabal/users-guide/developing-packages.html#executables)
-evalConfVar (Ctx _ compilerVersion) (Impl GHC compilerVersionRange)
-    = V.withinRange compilerVersion compilerVersionRange
+evalConfVar (Ctx _ config) (Impl GHC compilerVersionRange)
+    = V.withinRange (compilerVersion config) compilerVersionRange
 evalConfVar ctx (Impl _ _)
     = False -- we only do GHC for now
 
@@ -151,12 +146,7 @@ evalConfVar ctx (Impl _ _)
 -- | Convert a Cabal Dependency into a CabalPkgRef that is easier to work with
 convertDeps :: Dependency -> CabalPkgRef
 convertDeps (Dependency pkgName versionRange)
-    = CabalPkgRef (unPackageName pkgName) (convertVersionRange versionRange)
-
--- | Convert a Cabal version range into our VersionRange
-convertVersionRange :: V.VersionRange -> VersionRange
-convertVersionRange
-    = V.foldVersionRange AnyVersion This Later Earlier Union Intersection
+    = CabalPkgRef (unPackageName pkgName) versionRange
 
 ---------------------------------------------------------
 
@@ -176,11 +166,3 @@ printCabalPkg cabalPkg = do
 
 instance Show CabalPkgRef where
     show (CabalPkgRef name vrange) = name ++ "-" ++ show vrange
-
-instance Show VersionRange where
-    show AnyVersion             = "*"
-    show (This v)               = showVersion v
-    show (Later r)              = "> " ++ show r
-    show (Earlier r)            = "< " ++ show r
-    show (Union r1 r2)          = show r1 ++ " || " ++ show r2
-    show (Intersection r1 r2)   = show r1 ++ " && " ++ show r2

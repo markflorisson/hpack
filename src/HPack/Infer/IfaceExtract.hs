@@ -1,8 +1,9 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module HPack.Infer.Infer
-(PkgInterface(..), ModInterface(..), Origin, Signature, extract)
-where
+module HPack.Infer.IfaceExtract
+(PkgInterface(..), ModInterface(..), Origin, Signature
+, extractPkgInterface, extract
+) where
 
 import GHC
     ( getSessionDynFlags, setSessionDynFlags
@@ -24,11 +25,13 @@ import GHC.Fingerprint (Fingerprint)
 import qualified Data.Map as M
 import Control.Monad.IO.Class (liftIO)
 
+import HPack.Cabal (CabalPkg)
 import HPack.Source (ModulePath)
-import HPack.System (PkgId)
+import HPack.System (PkgDB, PkgId)
 import HPack.Ghc (SDoc, ghcShow, ghcShowSDoc)
 
-type Signature = String
+type Name       = String
+type Signature  = String
 
 data PkgInterface
     = PkgInterface
@@ -45,19 +48,37 @@ data ModInterface
         deriving (Eq, Show)
 
 data Symbol
-    = TyCon    String Origin Signature
-    | DataCon  String Origin Signature
-    | Fun      String Origin Signature
-    | ClassDef String Origin
-    | ClassInst String Origin
+    = TyCon     Name Origin Signature
+    | DataCon   Name Origin Signature
+    | Fun       Name Origin Signature
+    | ClassDef  Name Origin
+    | ClassInst Name Origin
     deriving (Eq, Show)
 
 data Origin = Origin
-    { immediateDepence :: PkgId -- ^ the package that exports the symbol
-    , source :: PkgId           -- ^ the original module that defined the
-                                --   symbol (in the case of a type constructor)
+    { exportingPkg :: PkgId     -- ^ the package that exports the symbol
     }
     deriving (Eq, Show)
+
+extractPkgInterface :: PkgDB -> PkgId -> CabalPkg -> IO PkgInterface
+extractPkgInterface = undefined
+
+extractModInterface :: PkgDB -> PkgId -> ModulePath -> IO ModInterface
+extractModInterface pkgDB pkdId path =
+    ModInterface <$> providedNames pkgDB path
+                 <*> requiredNames pkgDB path
+
+providedNames :: PkgDB -> ModulePath -> IO [Symbol]
+providedNames pkgdb path = undefined
+
+requiredNames :: PkgDB -> ModulePath -> IO [Symbol]
+requiredNames pkgdb path = undefined
+
+resolveSymbol :: Name -> Origin -> Symbol
+resolveSymbol = undefined
+
+(<:) :: Signature -> Signature -> Bool
+t1 <: t2 = undefined
 
 extract :: ModIface -> Ghc ModInterface
 extract modIface = do

@@ -10,10 +10,12 @@ import Data.Version (Version(..))
 
 
 -- | A package name and version pair
-data Pkg        = Pkg String Version
+data Pkg = Pkg String Version
+    deriving (Eq, Ord)
 
 -- | Path to a module within some package
 data ModulePath = ModulePath [String]
+    deriving (Eq, Ord)
 
 ---------------------------------------------------------
 

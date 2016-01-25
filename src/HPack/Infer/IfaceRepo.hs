@@ -3,7 +3,7 @@ module HPack.Infer.IfaceRepo
 where
 
 import HPack.Source (Pkg)
-import HPack.Infer.Infer (PkgInterface)
+import HPack.Infer.IfaceExtract (PkgInterface)
 
 data IfaceRepo
     = IfaceRepo { path :: FilePath }

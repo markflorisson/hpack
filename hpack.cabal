@@ -36,13 +36,15 @@ library
   default-language:    Haskell2010
   build-depends:       base, ghc, ghc-paths, transformers, Cabal,
                        filepath, containers, temporary, vector,
-                       directory, ghc-tcplugins-extra
+                       directory, ghc-tcplugins-extra, bytestring,
+                       process
   exposed-modules:     HPack.Source
                        HPack.Cabal
                        HPack.Build
                        HPack.System
                        HPack.Infer
                        HPack.Solver
+                       HPack.Config
   other-modules:       HPack.Source.Package
                        HPack.Source.SourceRepo
                        HPack.Cabal.Cabal
@@ -51,6 +53,12 @@ library
                        HPack.System.PkgDB
                        HPack.System.Plan
                        HPack.Infer.Iface
-                       HPack.Infer.Infer
+                       HPack.Infer.IfaceExtract
                        HPack.Infer.IfaceRepo
+                       HPack.Infer.Inference
+                       -- HPack.Infer.Parser
+                       -- HPack.Infer.Preprocess
+                       -- HPack.Infer.Loc
                        HPack.Solver.Solve
+                       HPack.Cache
+                       HPack.Utils
