@@ -1,5 +1,6 @@
 module HPack.Solver
-( module HPack.Solver.Solve )
+( module X )
 where
 
-import HPack.Solver.Solve
+import HPack.Solver.Solve       as X
+import HPack.Solver.DepGraph    as X

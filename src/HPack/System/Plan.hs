@@ -20,9 +20,10 @@ data BuildPlan = BuildPlan Pkg [PkgId]
 type InterfaceMapping = ModulePath -> ModIface
 
 data CandidateFlags
-    = IgnoreCabalUpperBounds
-    | IgnoreBadVersion Pkg
-    | Combine CandidateFlags CandidateFlags
+    = CandiateFlags
+        { ignoreUpperBounds :: Bool
+        , badPackages       :: [Pkg]
+        }
 
 -- | Given a Pkg, produce all possible build plans that might be
 -- considered valid

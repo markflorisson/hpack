@@ -26,7 +26,7 @@ import qualified Data.Map as M
 import Control.Monad.IO.Class (liftIO)
 
 import HPack.Cabal (CabalPkg)
-import HPack.Source (ModulePath)
+import HPack.Source (Pkg, ModulePath)
 import HPack.System (PkgDB, PkgId)
 import HPack.Ghc (SDoc, ghcShow, ghcShowSDoc)
 
@@ -60,7 +60,7 @@ data Origin = Origin
     }
     deriving (Eq, Show)
 
-extractPkgInterface :: PkgDB -> PkgId -> CabalPkg -> IO PkgInterface
+extractPkgInterface :: PkgDB -> PkgId -> Pkg -> IO PkgInterface
 extractPkgInterface = undefined
 
 extractModInterface :: PkgDB -> PkgId -> ModulePath -> IO ModInterface

@@ -10,7 +10,7 @@ import Data.Version (Version(..))
 
 
 -- | A package name and version pair
-data Pkg = Pkg String Version
+data Pkg = Pkg { pkgName :: String, pkgVersion :: Version }
     deriving (Eq, Ord)
 
 -- | Path to a module within some package

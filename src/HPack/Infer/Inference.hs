@@ -1,28 +1,37 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, NoMonomorphismRestriction #-}
 
 module HPack.Infer.Inference
 ( inferIface )
 where
 
+import qualified Data.Set as S
+import Data.Maybe (fromMaybe, maybe)
 import Data.Map (Map, lookup, insert)
+import Data.List (sort, sortBy)
 import Control.Monad (forM_)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (StateT, runStateT, put, get, modify)
-import Control.Monad.Trans.Except
-    (ExceptT, runExceptT, throwE, catchE, withExceptT)
 
 import HPack.Config (Config(..), CompilerVersion)
 import HPack.Source (Pkg(..), ModulePath, SourceRepo)
-import HPack.Cabal (CabalRepo, CabalPkg, CabalError, loadCabalFromPkg)
+import HPack.Cabal (CabalRepo, CabalRepoM, CabalPkg, CabalError, loadCabalFromPkg, runCabalRepoM)
 import HPack.System (PkgDB, PkgId)
+import HPack.Solver (SolverFlags(..), DepGraph, Disj(..), loadGraph, lookupPkg)
 import HPack.Infer.IfaceRepo (IfaceRepo)
 import HPack.Infer.IfaceExtract (PkgInterface, extractPkgInterface)
+import HPack.Monads
+    ( HPackT, MonadIO, runHPackT
+    , try, throw, catch, lift, liftM, liftIO, liftEither, mapLeft, liftMaybe
+    , get, put, modify
+    , random, uniform, shuffle
+    )
+
+-- | Monad used in the inference process
+type InferM m a = HPackT InferError State m a
 
 data InferError
     = CabalError CabalError
     | BuildError String
     | InferenceError Pkg
+    | PkgNotInGraph Pkg
 
 data State
     = State
@@ -30,14 +39,136 @@ data State
         , sourceRepo    :: SourceRepo
         , pkgDB         :: PkgDB
         , ifaceRepo     :: IfaceRepo
+        , config        :: Config
+        , flags         :: SolverFlags
         }
 
-type InferM m a = ExceptT InferError (StateT State m) a
+-- | A particular package build configuration, indicating which versions
+-- of the immediate package dependencies are to be chosen for some pkg
+-- data BuildConfiguration
+--     = BuildConfiguration
+--         { immediateDeps :: [Pkg] }
 
-inferIface :: MonadIO m => Config -> Pkg -> InferM m PkgInterface
-inferIface config pkg@(Pkg name version) = do
-    State{..} <- lift get
-    cabalPkg <- withExceptT CabalError $ loadCabalFromPkg cabalRepo config pkg
+-- | A possible plan to be proposed for compilation and interface extraction
+data BuildPlan
+    = BuildPlan
+        { pkgToBuild :: Pkg
+        , immediateDependencies :: [PkgId]
+        , solverFlags :: SolverFlags
+        }
 
-    let pkdId = undefined
-    liftIO $ extractPkgInterface pkgDB pkdId cabalPkg
+type BuildConfiguration = [Pkg]
+
+runInferM = runHPackT
+
+liftCabalRepoM :: Monad m => CabalRepoM m a -> InferM m a
+liftCabalRepoM m = do
+    result <- lift $ runCabalRepoM m
+    liftEither $ mapLeft CabalError result
+
+inferIface :: MonadIO m => Pkg -> InferM m ()
+inferIface pkg@(Pkg name version) = do
+    State{..} <- get
+    eitherGraph <- liftIO $ loadGraph cabalRepo config pkg
+    depGraph <- liftEither $ mapLeft CabalError eitherGraph
+    infer depGraph pkg
+    return ()
+
+infer :: MonadIO m => DepGraph -> Pkg -> InferM m PkgInterface
+infer depGraph pkg = do
+        immediateDeps <- findDeps pkg
+
+        -- generate all possible build configurations we can try randomly
+        configurations <- randomConfigurations immediateDeps
+
+        -- find the first one that works
+        maybeConfiguration <- findFirstConfiguration configurations
+
+        (firstConfiguration, firstIface) <-
+            case maybeConfiguration of
+                Just (c, iface) -> return (c, iface)
+                Nothing         -> throw (InferenceError pkg)
+
+        -- iteratively improve the build configuration by trying later
+        -- dependency versions
+        (buildConfig, pkgIface) <-
+            findBestConfiguration firstConfiguration firstIface
+                                  firstConfiguration immediateDeps
+
+        return pkgIface
+    where
+        -- | Find the possibilities for each dependency of a given package
+        findDeps :: Monad m => Pkg -> InferM m [Disj]
+        findDeps pkg = liftMaybe (PkgNotInGraph pkg) (lookupPkg pkg depGraph)
+
+        -- | Find the first configuration that actually builds properly
+        findFirstConfiguration
+            :: MonadIO m
+            => [BuildConfiguration]
+            -> InferM m (Maybe (BuildConfiguration, PkgInterface))
+        findFirstConfiguration (c:cs) = do
+            maybeIface <- build depGraph pkg c
+            case maybeIface of
+                Just iface -> return (Just (c, iface))
+                Nothing    -> findFirstConfiguration cs
+        findFirstConfiguration [] = return Nothing
+
+        -- | Find the "best" configuration by successively trying to build
+        -- against the latest possible versions of a package's dependencies
+        findBestConfiguration :: MonadIO m
+                              => BuildConfiguration
+                              -> PkgInterface
+                              -> BuildConfiguration
+                              -> [Disj]
+                              -> InferM m (BuildConfiguration, PkgInterface)
+        findBestConfiguration buildConfig iface (p:ps) (d:ds) = do
+            let buildConfigs = improvedConfigurations buildConfig p d
+            maybeCandidateConfig <- findFirstConfiguration buildConfigs
+            let (buildConfig', iface') = fromMaybe (buildConfig, iface) maybeCandidateConfig
+            findBestConfiguration buildConfig' iface' ps ds
+        findBestConfiguration buildConfig iface [] [] = return (buildConfig, iface)
+
+        -- | Get all possible build configurations in a random order
+        randomConfigurations :: MonadIO m => [Disj] -> InferM m [BuildConfiguration]
+        randomConfigurations disjs
+            | [] <- disjs = return []
+            | (Disj pkgs:disjs) <- disjs = do
+                ps <- shuffle pkgs
+                cs <- randomConfigurations disjs
+                return [ pkg:comb | comb <- cs, pkg <- ps ]
+
+        -- | Compute build configurations where 'pkg' in the given
+        -- build configuration is replaced by later versions of itself
+        improvedConfigurations
+            :: BuildConfiguration -> Pkg -> Disj -> [BuildConfiguration]
+        improvedConfigurations buildConfig p@(Pkg _ v) (Disj ps)
+            = [ replacePkg p' buildConfig | p'@(Pkg _ v') <- ps, v' > v ]
+
+        -- | Replace an older version of a package in a build configuration
+        -- witha newer one
+        replacePkg :: Pkg -> BuildConfiguration -> BuildConfiguration
+        replacePkg pkg@(Pkg name version) pkgs
+            = map replace pkgs
+            where
+                replace pkg'@(Pkg name' version')
+                    | name == name' = pkg
+                    | otherwise     = pkg'
+
+-- | Build a package against the given versions of its immediate dependencies
+build :: MonadIO m => DepGraph -> Pkg -> BuildConfiguration
+      -> InferM m (Maybe PkgInterface)
+build depGraph pkg buildConfiguration = do
+      State{..} <- get
+      plan <- computeBuildPlan pkg
+      maybePkgId <- buildPackage plan
+      case maybePkgId of
+          Just pkgId ->
+              liftIO $ liftM Just $ extractPkgInterface pkgDB pkgId pkg
+          Nothing ->
+              return Nothing
+    where
+        computeBuildPlan :: MonadIO m => Pkg -> InferM m BuildPlan
+        computeBuildPlan pkg = undefined
+
+        buildPackage :: MonadIO m => BuildPlan -> InferM m (Maybe PkgId)
+        buildPackage buildPlan = undefined

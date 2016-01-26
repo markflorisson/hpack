@@ -1,5 +1,6 @@
+{-# LANGUAGE NoMonomorphismRestriction #-}
 module HPack.Solver.Solve
-(solve)
+(SolverM, runSolverM, solve, SolverFlags(..))
 where
 
 import qualified Data.Map as M
@@ -7,7 +8,19 @@ import qualified Data.Map as M
 import HPack.Source (Pkg)
 import HPack.Cabal (CabalRepo)
 import HPack.System (PkgDB, PkgId)
-import HPack.Infer (IfaceRepo)
+import HPack.Solver.DepGraph (DepGraph)
+import HPack.Monads
 
-solve :: Pkg -> CabalRepo -> IfaceRepo -> PkgDB -> PkgDB
+type SolverM m a = HPackT m a
+
+runSolverM = runHPackT
+
+-- | Flags for package resolution
+data SolverFlags
+    = CandiateFlags
+        { ignoreUpperBounds :: Bool
+        , badPackages       :: [Pkg]
+        }
+
+solve :: SolverFlags -> Pkg -> DepGraph -> PkgDB -> PkgDB
 solve = undefined

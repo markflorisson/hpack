@@ -1,5 +1,5 @@
 module HPack.Solver.DepGraph
-(DepGraph, TopoSort(..), builtinPkgs, loadGraph, union) -- , toposort)
+(DepGraph, TopoSort(..), Disj(..), builtinPkgs, loadGraph, union, lookupPkg)
 where
 
 import qualified Data.Set as S
@@ -33,6 +33,9 @@ union (DepGraph g1) (DepGraph g2) = DepGraph (g1 `M.union` g2)
 -- | Packages built into GHC
 builtinPkgs :: S.Set Pkg
 builtinPkgs = S.empty
+
+lookupPkg :: Pkg -> DepGraph -> Maybe [Disj]
+lookupPkg pkg (DepGraph graph) = M.lookup pkg graph
 
 -- | Load a version-based dependency graph from .cabal files
 loadGraph :: CabalRepo -> Config -> Pkg -> IO (Either CabalError DepGraph)
