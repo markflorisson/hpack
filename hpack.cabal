@@ -37,7 +37,8 @@ library
   build-depends:       base, ghc, ghc-paths, transformers, Cabal,
                        filepath, containers, temporary, vector,
                        directory, ghc-tcplugins-extra, bytestring,
-                       process, mtl, MonadRandom, random-shuffle
+                       process, mtl, MonadRandom, random-shuffle,
+                       aeson
   exposed-modules:     HPack.Source
                        HPack.Cabal
                        HPack.Build

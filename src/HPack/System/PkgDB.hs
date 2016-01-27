@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module HPack.System.PkgDB where
 
@@ -8,6 +9,8 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (StateT, runStateT, put, get, modify)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE, catchE)
+
+import GHC.Generics
 
 import System.Directory
     (createDirectoryIfMissing, getDirectoryContents, doesDirectoryExist, copyFile)
@@ -33,7 +36,7 @@ type DB = ExceptT DBErr (StateT PkgDB IO)
 -- package on disk in the PkgDB
 newtype PkgId = PkgId Int
     -- this should probably not be an int but a SHA256 hash or something
-    deriving (Ord, Eq, Show)
+    deriving (Ord, Eq, Show, Generic)
 
 -- | Database of packages that are compiled on the system
 data PkgDB = PkgDB

@@ -72,6 +72,8 @@ getSourcePath repo (Pkg name version)
 cabalGetSource :: SourceRepo -> Pkg -> IO String
 cabalGetSource repo pkg@(Pkg name version) = do
     let sourcePath = getSourcePath repo pkg
+    createDirectoryIfMissing True sourcePath
+
     let cabal = cabalPath (config repo)
     let args = ["get", name ++ "-" ++ showVersion version]
 

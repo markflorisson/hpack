@@ -59,24 +59,37 @@ data BuildPlan
 
 type BuildConfiguration = [Pkg]
 
-runInferM = runHPackT
+-- | Run the intererence monad, returning an updated package and
+-- interface repository
+runInferM :: Monad m
+          => InferM m a -> State
+          -> m (Either InferError (a, PkgDB, IfaceRepo))
+runInferM computation state = flip runHPackT state $ do
+    result <- computation
+    state  <- get
+    return (result, pkgDB state, ifaceRepo state)
 
 liftCabalRepoM :: Monad m => CabalRepoM m a -> InferM m a
 liftCabalRepoM m = do
     result <- lift $ runCabalRepoM m
     liftEither $ mapLeft CabalError result
 
-inferIface :: MonadIO m => Pkg -> InferM m ()
+inferIface :: MonadIO m => Pkg -> InferM m PkgInterface
 inferIface pkg@(Pkg name version) = do
     State{..} <- get
     eitherGraph <- liftIO $ loadGraph cabalRepo config pkg
     depGraph <- liftEither $ mapLeft CabalError eitherGraph
     infer depGraph pkg
-    return ()
 
+-- | Find the possibilities for each dependency of a given package
+findDeps :: Monad m => DepGraph -> Pkg -> InferM m [Disj]
+findDeps depGraph pkg = liftMaybe (PkgNotInGraph pkg) (lookupPkg pkg depGraph)
+
+-- | Infer a package interface for the given package, or raise an exception
+-- in the InferM monad
 infer :: MonadIO m => DepGraph -> Pkg -> InferM m PkgInterface
 infer depGraph pkg = do
-        immediateDeps <- findDeps pkg
+        immediateDeps <- findDeps depGraph pkg
 
         -- generate all possible build configurations we can try randomly
         configurations <- randomConfigurations immediateDeps
@@ -97,10 +110,6 @@ infer depGraph pkg = do
 
         return pkgIface
     where
-        -- | Find the possibilities for each dependency of a given package
-        findDeps :: Monad m => Pkg -> InferM m [Disj]
-        findDeps pkg = liftMaybe (PkgNotInGraph pkg) (lookupPkg pkg depGraph)
-
         -- | Find the first configuration that actually builds properly
         findFirstConfiguration
             :: MonadIO m

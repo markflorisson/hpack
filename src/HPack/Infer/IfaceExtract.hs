@@ -1,7 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module HPack.Infer.IfaceExtract
-(PkgInterface(..), ModInterface(..), Origin, Signature
+(PkgInterface(..), ModInterface(..), Symbol(..), Origin(..), Signature(..)
 , extractPkgInterface, extract
 ) where
 
@@ -21,6 +22,7 @@ import Outputable (SDoc, ppr, text, (<>), (<+>))
 -- compiler/iface/IfaceSyn
 import IfaceSyn (IfaceDecl(..))
 import GHC.Fingerprint (Fingerprint)
+import GHC.Generics
 
 import qualified Data.Map as M
 import Control.Monad.IO.Class (liftIO)
@@ -39,13 +41,14 @@ data PkgInterface
         , version :: String
         , modules :: M.Map ModulePath ModInterface
         }
+        deriving (Generic)
 
 data ModInterface
     = ModInterface
         { provides :: [Symbol]
         , requires :: [Symbol]
         }
-        deriving (Eq, Show)
+        deriving (Eq, Show, Generic)
 
 data Symbol
     = TyCon     Name Origin Signature
@@ -53,12 +56,12 @@ data Symbol
     | Fun       Name Origin Signature
     | ClassDef  Name Origin
     | ClassInst Name Origin
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic)
 
 data Origin = Origin
     { exportingPkg :: PkgId     -- ^ the package that exports the symbol
     }
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic)
 
 extractPkgInterface :: PkgDB -> PkgId -> Pkg -> IO PkgInterface
 extractPkgInterface = undefined
