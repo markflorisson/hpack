@@ -15,7 +15,9 @@ import HPack.Source (Pkg(..), ModulePath, SourceRepo)
 import HPack.Cabal (CabalRepo, CabalRepoM, CabalPkg, CabalError, loadCabalFromPkg, runCabalRepoM)
 import HPack.System (PkgDB, PkgId)
 import HPack.Solver (SolverFlags(..), DepGraph, Disj(..), loadGraph, lookupPkg)
-import HPack.Infer.IfaceRepo (IfaceRepo, IfaceRepoM, runIfaceRepoM, IfaceRepoError)
+import HPack.Infer.IfaceRepo
+    ( IfaceRepo, IfaceRepoM, runIfaceRepoM, IfaceRepoError
+    , getPkgIface, addPkgIface)
 import HPack.Infer.IfaceExtract (PkgInterface, extractPkgInterface)
 import HPack.Monads
 
@@ -97,9 +99,16 @@ findDeps depGraph pkg = liftMaybe (PkgNotInGraph pkg) (lookupPkg pkg depGraph)
 
 -- | Infer a package interface for the given package, or raise an exception
 -- in the InferM monad
+--
+-- TODO: keep a stack to guard against cyclic dependencies
+--
 infer :: MonadIO m => DepGraph -> Pkg -> InferM m PkgInterface
-infer depGraph pkg = do
+infer depGraph pkg = findPkgIface $ do
         immediateDeps <- findDeps depGraph pkg
+
+        -- build immediate dependencies
+        forM_ immediateDeps $ \(Disj deps) ->
+            mapM_ (infer depGraph) deps
 
         -- generate all possible build configurations we can try randomly
         configurations <- randomConfigurations immediateDeps
@@ -120,6 +129,13 @@ infer depGraph pkg = do
 
         return pkgIface
     where
+        findPkgIface :: MonadIO m => InferM m PkgInterface -> InferM m PkgInterface
+        findPkgIface computation = do
+            maybePkgIface <- lift $ getPkgIface pkg
+            case maybePkgIface of
+                Just pkgIface -> return pkgIface
+                Nothing       -> computation
+
         -- | Find the first configuration that actually builds properly
         findFirstConfiguration
             :: MonadIO m
