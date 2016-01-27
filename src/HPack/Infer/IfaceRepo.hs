@@ -1,5 +1,5 @@
 module HPack.Infer.IfaceRepo
-(IfaceRepo(..), IfaceRepoM, runIfaceRepo, addPkgIface, getPkgIface)
+(IfaceRepo(..), IfaceRepoM, IfaceRepoError(..), runIfaceRepoM, addPkgIface, getPkgIface)
 where
 
 import qualified Data.Map as M
@@ -16,7 +16,7 @@ import HPack.Infer.IfaceExtract
     (PkgInterface(..), ModInterface(..), Symbol(..), Origin(..))
 import HPack.Infer.JSONInterface (serialize, deserialize)
 
-type IfaceRepoM m a = HPackT IfaceRepoError IfaceRepo m a
+type IfaceRepoM m = HPackT IfaceRepoError IfaceRepo m
 
 -- | Repository for interfaces inferred from packages. This is needed for
 -- the HPack solver to compute package versions
@@ -37,14 +37,16 @@ data IfaceRepoError
     | IfaceParseError FilePath
 
 -- | Run the interface monad given the directory path to the repository
-runIfaceRepo :: MonadIO m
-             => FilePath
-             -> IfaceRepoM m a
-             -> m (Either IfaceRepoError a)
-runIfaceRepo path computation = flip runHPackT (IfaceRepo "" M.empty) $ do
+runIfaceRepoM :: MonadIO m
+              => FilePath
+              -> IfaceRepoM m a
+              -> m (Either IfaceRepoError (a, IfaceRepo))
+runIfaceRepoM path computation = flip runHPackT (IfaceRepo "" M.empty) $ do
     liftIO $ createDirectoryIfMissing False path
     put $ IfaceRepo path M.empty
-    computation
+    val <- computation
+    ifaceRepo <- get
+    return (val, ifaceRepo)
 
 -- | Add a package interface, updating the filesystem and the
 -- in-memory cache

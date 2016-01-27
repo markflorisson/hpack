@@ -15,30 +15,26 @@ import HPack.Source (Pkg(..), ModulePath, SourceRepo)
 import HPack.Cabal (CabalRepo, CabalRepoM, CabalPkg, CabalError, loadCabalFromPkg, runCabalRepoM)
 import HPack.System (PkgDB, PkgId)
 import HPack.Solver (SolverFlags(..), DepGraph, Disj(..), loadGraph, lookupPkg)
-import HPack.Infer.IfaceRepo (IfaceRepo)
+import HPack.Infer.IfaceRepo (IfaceRepo, IfaceRepoM, runIfaceRepoM, IfaceRepoError)
 import HPack.Infer.IfaceExtract (PkgInterface, extractPkgInterface)
 import HPack.Monads
-    ( HPackT, MonadIO, runHPackT
-    , try, throw, catch, lift, liftM, liftIO, liftEither, mapLeft, liftMaybe
-    , get, put, modify
-    , random, uniform, shuffle
-    )
 
 -- | Monad used in the inference process
-type InferM m a = HPackT InferError State m a
+type InferM m a = HPackT InferError State (IfaceRepoM m) a
 
 data InferError
     = CabalError CabalError
     | BuildError String
     | InferenceError Pkg
     | PkgNotInGraph Pkg
+    | IfaceRepoError IfaceRepoError
 
 data State
     = State
         { cabalRepo     :: CabalRepo
         , sourceRepo    :: SourceRepo
+        , ifaceRepoPath :: FilePath
         , pkgDB         :: PkgDB
-        , ifaceRepo     :: IfaceRepo
         , config        :: Config
         , flags         :: SolverFlags
         }
@@ -64,14 +60,28 @@ type BuildConfiguration = [Pkg]
 runInferM :: Monad m
           => InferM m a -> State
           -> m (Either InferError (a, PkgDB, IfaceRepo))
-runInferM computation state = flip runHPackT state $ do
-    result <- computation
-    state  <- get
-    return (result, pkgDB state, ifaceRepo state)
+runInferM computation state = do
+    eitherEitherVal <- runIface (runInfer computation)
+    return $ do
+        (eitherVal, ifaceRepo) <- eitherEitherVal
+        (val, pkgdb) <- eitherVal
+        return (val, pkgdb, ifaceRepo)
+    where
+        runInfer :: Monad m => InferM m a -> IfaceRepoM m (Either InferError (a, PkgDB))
+        runInfer computation = flip runHPackT state $ do
+            result <- computation
+            state  <- get
+            return (result, pkgDB state)
+
+        runIface :: Monad m => IfaceRepoM m a -> m (Either InferError (a, IfaceRepo))
+        runIface ifaceM = do
+            eitherResult <- undefined -- runIfaceRepoM (ifaceRepoPath state) ifaceM
+            return (mapLeft IfaceRepoError eitherResult)
+
 
 liftCabalRepoM :: Monad m => CabalRepoM m a -> InferM m a
 liftCabalRepoM m = do
-    result <- lift $ runCabalRepoM m
+    result <- undefined -- lift $ runCabalRepoM m
     liftEither $ mapLeft CabalError result
 
 inferIface :: MonadIO m => Pkg -> InferM m PkgInterface
