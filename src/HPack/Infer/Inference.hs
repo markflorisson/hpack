@@ -57,7 +57,7 @@ type BuildConfiguration = [Pkg]
 
 -- | Run the intererence monad, returning an updated package and
 -- interface repository
-runInferM :: Monad m
+runInferM :: MonadIO m
           => InferM m a -> State
           -> m (Either InferError (a, PkgDB, IfaceRepo))
 runInferM computation state = do
@@ -73,9 +73,9 @@ runInferM computation state = do
             state  <- get
             return (result, pkgDB state)
 
-        runIface :: Monad m => IfaceRepoM m a -> m (Either InferError (a, IfaceRepo))
+        runIface :: MonadIO m => IfaceRepoM m a -> m (Either InferError (a, IfaceRepo))
         runIface ifaceM = do
-            eitherResult <- undefined -- runIfaceRepoM (ifaceRepoPath state) ifaceM
+            eitherResult <- runIfaceRepoM (ifaceRepoPath state) ifaceM
             return (mapLeft IfaceRepoError eitherResult)
 
 
