@@ -34,11 +34,12 @@ executable loadCabal
 library
   hs-source-dirs:      src
   default-language:    Haskell2010
+  ghc-options:         -Wwarn
   build-depends:       base, ghc, ghc-paths, transformers, Cabal,
                        filepath, containers, temporary, vector,
                        directory, ghc-tcplugins-extra, bytestring,
                        process, mtl, MonadRandom, random-shuffle,
-                       aeson
+                       aeson, text
   exposed-modules:     HPack.Source
                        HPack.Cabal
                        HPack.Build
@@ -61,5 +62,7 @@ library
                        -- HPack.Infer.Preprocess
                        -- HPack.Infer.Loc
                        HPack.Solver.Solve
+                       HPack.JSON
                        HPack.Cache
                        HPack.Utils
+                       HPack.Monads

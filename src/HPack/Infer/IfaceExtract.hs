@@ -31,6 +31,7 @@ import HPack.Cabal (CabalPkg)
 import HPack.Source (Pkg, ModulePath)
 import HPack.System (PkgDB, PkgId)
 import HPack.Ghc (SDoc, ghcShow, ghcShowSDoc)
+import HPack.JSON
 
 type Name       = String
 type Signature  = String
@@ -62,6 +63,18 @@ data Origin = Origin
     { exportingPkg :: PkgId     -- ^ the package that exports the symbol
     }
     deriving (Eq, Show, Generic)
+
+
+instance ToJSON PkgInterface
+instance ToJSON ModInterface
+instance ToJSON Symbol
+instance ToJSON Origin
+
+instance FromJSON PkgInterface
+instance FromJSON ModInterface
+instance FromJSON Symbol
+instance FromJSON Origin
+
 
 extractPkgInterface :: PkgDB -> PkgId -> Pkg -> IO PkgInterface
 extractPkgInterface = undefined

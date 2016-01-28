@@ -207,3 +207,13 @@ build depGraph pkg buildConfiguration = do
 
         buildPackage :: MonadIO m => BuildPlan -> InferM m (Maybe PkgId)
         buildPackage buildPlan = undefined
+
+
+
+
+
+
+
+
+
+foo = undefined

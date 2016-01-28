@@ -1,20 +1,21 @@
 module HPack.Infer.IfaceRepo
-(IfaceRepo(..), IfaceRepoM, IfaceRepoError(..), runIfaceRepoM, addPkgIface, getPkgIface)
-where
+( IfaceRepo(..), IfaceRepoM, IfaceRepoError(..)
+, runIfaceRepoM, addPkgIface, getPkgIface
+) where
 
 import qualified Data.Map as M
 import System.FilePath ((</>))
 import System.Directory
     ( doesFileExist, doesDirectoryExist, getDirectoryContents
     , createDirectoryIfMissing, removeDirectoryRecursive)
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BS
 
 import HPack.Monads
 import HPack.System (PkgId(..))
 import HPack.Source (Pkg(..), ModulePath(..), showVersion)
 import HPack.Infer.IfaceExtract
     (PkgInterface(..), ModInterface(..), Symbol(..), Origin(..))
-import HPack.Infer.JSONInterface (serialize, deserialize)
+import HPack.JSON
 
 type IfaceRepoM m = HPackT IfaceRepoError IfaceRepo m
 
@@ -55,7 +56,7 @@ addPkgIface pkg@(Pkg name version) pkgInterface = do
     ifaceRepo <- get
     let dirname = ifacePath ifaceRepo pkg
     liftIO $ createDirectoryIfMissing True dirname
-    liftIO $ BS.writeFile (ifaceFile ifaceRepo pkg) (serialize pkgInterface)
+    liftIO $ BS.writeFile (ifaceFile ifaceRepo pkg) (encode pkgInterface)
     return ()
 
 -- | Get the interface of a package if available in the repository, and add
@@ -76,7 +77,7 @@ getPkgIface pkg = do
         loadFile :: MonadIO m => FilePath -> IfaceRepoM m PkgInterface
         loadFile fileName = do
             contents <- liftIO $ BS.readFile fileName
-            case deserialize contents of
+            case decode contents of
                 Just pkgInterface -> return pkgInterface
                 Nothing           -> throw $ IfaceParseError fileName
 

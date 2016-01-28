@@ -5,8 +5,6 @@ module HPack.Cabal.CabalRepo
 , listCabalPkgs
 ) where
 
-import Text.ParserCombinators.ReadP (readP_to_S)
-import Data.Version (Version, parseVersion)
 import System.FilePath ((</>))
 import System.Directory (doesDirectoryExist, getDirectoryContents)
 import System.IO.Error (tryIOError)
@@ -14,7 +12,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
 import Data.Maybe (mapMaybe)
 
-import HPack.Source (Pkg(..), ModulePath(..), Version, showVersion)
+import HPack.Source (Pkg(..), ModulePath(..), Version, showVersion, parseVersion)
 import HPack.Cabal.Cabal (CabalPkg(..), CompilerVersion, loadCabalFromFile)
 import HPack.Config (Config(..))
 import HPack.Utils (whenM, raiseEither)
@@ -57,11 +55,5 @@ getCabalFilename (CabalRepo path) (Pkg name version)
 listCabalPkgs :: CabalRepo -> String -> IO [Pkg]
 listCabalPkgs (CabalRepo path) pkgName = do
     versionStrings <- getDirectoryContents (path </> "metadata" </> pkgName)
-    let versions = mapMaybe readVersion versionStrings
+    let versions = mapMaybe parseVersion versionStrings
     return (map (Pkg pkgName) versions)
-
-readVersion :: String -> Maybe Version
-readVersion versionString =
-    case readP_to_S parseVersion versionString of
-        (version, _):xs -> Just version
-        _            -> Nothing

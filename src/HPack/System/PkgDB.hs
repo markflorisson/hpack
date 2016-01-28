@@ -1,22 +1,23 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module HPack.System.PkgDB where
+module HPack.System.PkgDB
 
-import Data.Map (Map, lookup, insert)
-import Control.Monad (forM_)
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (StateT, runStateT, put, get, modify)
-import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE, catchE)
+where
 
+import qualified Data.Map as M
 import GHC.Generics
 
 import System.Directory
-    (createDirectoryIfMissing, getDirectoryContents, doesDirectoryExist, copyFile)
+    ( createDirectoryIfMissing, getDirectoryContents
+    , doesDirectoryExist, doesFileExist, copyFile)
 import System.FilePath ((</>))
 import System.IO.Temp (createTempDirectory)
+import Control.Monad
+import qualified Data.ByteString.Lazy as BS
 
+import HPack.JSON
+import HPack.Monads
 import HPack.Source.SourceRepo (SourceRepo, getSourceForPkg)
 import HPack.Source.Package (Pkg(..), ModulePath)
 import HPack.Utils (whenM, raiseEither)
@@ -28,8 +29,20 @@ data DBErr
     | SourceDownloadError IOError
     -- | the sources for some package couldn't be found
     | DBPkgNotFound
+    | MalformedJSON FilePath
 
-type DB = ExceptT DBErr (StateT PkgDB IO)
+type DB m = HPackT DBErr PkgDB m
+
+-- | Database of packages that are compiled on the system
+data PkgDB = PkgDB
+    { dbLocation :: FilePath
+        -- ^ package db location on disk
+    , pkgInfo    :: M.Map PkgId Pkg
+        -- ^ package name and version for each package ID
+    , depInfo    :: M.Map PkgId [PkgId]
+        -- ^ dependencies for each package ID
+    }
+    deriving (Show, Generic)
 
 -- | A concrete package *instantiation*: that is, a particular
 -- compilation and linkage of a package. Also used to store the
@@ -38,26 +51,41 @@ newtype PkgId = PkgId Int
     -- this should probably not be an int but a SHA256 hash or something
     deriving (Ord, Eq, Show, Generic)
 
--- | Database of packages that are compiled on the system
-data PkgDB = PkgDB
-    { dbLocation :: FilePath          -- ^ package db location on disk
-    , pkgInfo    :: Map PkgId Pkg     -- ^ package name and version for
-                                      --   each package ID
-    , depInfo    :: Map PkgId [PkgId] -- ^ dependencies for package ID
-    }
+instance ToJSON PkgDB
+instance FromJSON PkgDB
+
+instance ToJSON PkgId
+instance FromJSON PkgId
 
 ---------------------------------------------------------
 
 -- | Create initial (empty) package database
-initPkgDB :: FilePath -> DB ()
-initPkgDB = undefined
+runDB :: MonadIO m => FilePath -> DB m a -> m (Either DBErr (a, PkgDB))
+runDB path computation = flip runHPackT (PkgDB path M.empty M.empty) $ do
+    liftIO $ createDirectoryIfMissing False path
+    loadPkgDB
+    val <- computation
+    savePkgDB
+    pkgDB <- get
+    return (val, pkgDB)
 
--- | Load package database from disk
-loadPkgDB :: FilePath -> DB ()
-loadPkgDB = undefined
+-- | Load the package dependency graph from a JSON file
+loadPkgDB :: MonadIO m => DB m ()
+loadPkgDB = do
+    dbPath <- liftM dbLocation get
+    let filename = dbPath ++ "dependencyGraph.json"
+    haveFile <- liftIO $ doesFileExist filename
+    if not haveFile
+        then return ()
+        else do contents <- liftIO $ BS.readFile filename
+                case decode contents of
+                    Just (pkgInfo, depInfo) ->
+                        put $ PkgDB dbPath pkgInfo depInfo
+                    Nothing ->
+                        throw (MalformedJSON filename)
 
 -- | Save package database to disk (to dbLocation)
-savePkgDB :: DB ()
+savePkgDB :: MonadIO m => DB m ()
 savePkgDB = undefined
 
 ---------------------------------------------------------
@@ -68,11 +96,11 @@ getFilesAndFolders path =
 
 -- | `cloneDir src dest` clones the directory at the location pointed at
 --   by `src` to `dest`.
-cloneDir :: FilePath -> FilePath -> DB ()
+cloneDir :: MonadIO m => FilePath -> FilePath -> DB m ()
 cloneDir src dest = do
     -- the source directory must exist
     whenM (liftIO $ not <$> doesDirectoryExist src) $
-        throwE DBPkgNotFound
+        throw DBPkgNotFound
 
     -- get the contents of the source directory and create the
     -- target directory, if required
@@ -96,7 +124,11 @@ cloneDir src dest = do
 -- | Try to compile the package against the given dependencies.
 -- On success, returns a new PkgId for the package, and update the
 -- PkgDB
-tryCompile :: SourceRepo -> Pkg -> [PkgId] -> DB (SourceRepo, PkgId)
+tryCompile :: MonadIO m
+           => SourceRepo
+           -> Pkg
+           -> [PkgId]
+           -> DB m (SourceRepo, PkgId)
 tryCompile srcRepo pkg dependencies = do
     -- 0) Download package sources
     (srcRepo', pkgLocation) <- liftIO (getSourceForPkg srcRepo pkg)
@@ -122,10 +154,10 @@ tryCompile srcRepo pkg dependencies = do
     --    (move package under its proper hash in the package database)
 
     -- 7) if successful, update PkgDB
-    PkgDB {..} <- lift get
-    let pkgInfo' = insert pkgId pkg pkgInfo
-    let depInfo' = insert pkgId dependencies depInfo
-    lift $ modify (\pkgDB -> PkgDB dbLocation pkgInfo' depInfo')
+    PkgDB {..} <- get
+    let pkgInfo' = M.insert pkgId pkg pkgInfo
+    let depInfo' = M.insert pkgId dependencies depInfo
+    modify (\pkgDB -> PkgDB dbLocation pkgInfo' depInfo')
 
     -- 8) register the compiled package with GHC's database
     -- ghc-pkg register / cabal install
@@ -135,7 +167,7 @@ tryCompile srcRepo pkg dependencies = do
 
 -- | Compute the hash for the package, given its name, version and
 -- a list of its compiled dependencies
-computePkgHash :: Pkg -> [PkgId] -> DB PkgId
+computePkgHash :: MonadIO m => Pkg -> [PkgId] -> DB m PkgId
 computePkgHash pkg dependencies = undefined
 
 -- | Find all existing compilations in the package database for the
