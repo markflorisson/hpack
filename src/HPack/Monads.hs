@@ -10,7 +10,9 @@ module HPack.Monads
 , random, uniform, shuffle
 ) where
 
-import qualified System.Random.Shuffle      as M
+import qualified System.Random              as R
+import qualified System.Random.Shuffle      as R
+import qualified Control.Monad.Random       as R
 import qualified Control.Monad              as M
 import qualified Control.Monad.IO.Class     as M
 import qualified Control.Monad.Identity     as M
@@ -18,7 +20,6 @@ import qualified Control.Monad.Reader.Class as M
 import qualified Control.Monad.Trans.Class  as M
 import qualified Control.Monad.Trans.State  as M
 import qualified Control.Monad.Trans.Except as M
-import qualified Control.Monad.Random       as M
     -- (ExceptT, runExceptT, throwE, catchE, withExceptT)
 
 -- | Monad that handles state and exceptions. Make sure it is abstract
@@ -99,11 +100,11 @@ modify = HPackT . M.lift . M.modify
 -------------------------------------------------------
 -- Random
 
-random :: M.MonadIO m => (Int, Int) -> HPackT e s m Int
-random = liftIO . M.evalRandIO . M.getRandomR
+random :: (R.Random a, M.MonadIO m) => (a, a) -> HPackT e s m a
+random = liftIO . R.evalRandIO . R.getRandomR
 
 uniform :: M.MonadIO m => [a] -> HPackT e s m a
-uniform = liftIO . M.evalRandIO . M.uniform
+uniform = liftIO . R.evalRandIO . R.uniform
 
 shuffle :: M.MonadIO m => [a] -> HPackT e s m [a]
-shuffle = liftIO . M.evalRandIO . M.shuffleM
+shuffle = liftIO . R.evalRandIO . R.shuffleM

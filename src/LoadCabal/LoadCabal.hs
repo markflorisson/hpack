@@ -11,7 +11,9 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 
 import HPack.Source (Version(..))
-import HPack.Cabal (printCabalPkg, loadCabalFromFile)
+import HPack.Cabal ( printCabalPkg, loadCabalFromFile
+                   , parseCabalFile, writeCabalFile
+                   )
 import HPack.Config (Config, defaultConfig)
 
 ghcVersion :: Version
@@ -21,7 +23,12 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        [arg] -> loadCabalFromFile defaultConfig arg
-                 >>= printCabalPkg
+        [filename] -> do
+            cabalPkg <- loadCabalFromFile defaultConfig filename
+            printCabalPkg cabalPkg
+            putStrLn "Parsing...."
+            genPkgDesc <- parseCabalFile filename
+            writeCabalFile "/home/mark/test.cabal" genPkgDesc cabalPkg
+            putStrLn " Done writing /home/mark/test.cabal"
         _     -> putStrLn "Expected a .cabal filename argument"
                  >> exitFailure
