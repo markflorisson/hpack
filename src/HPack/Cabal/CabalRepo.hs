@@ -46,7 +46,8 @@ loadCabalFromPkg :: MonadIO m => CabalRepo -> Config -> Pkg
 loadCabalFromPkg repo config pkg = do
     let fn = getCabalFilename repo pkg
     eitherCabalPkg <- liftIO $ tryIOError $ loadCabalFromFile config fn
-    raiseEither CabalIOError eitherCabalPkg
+    (cabalPkg, _) <- raiseEither CabalIOError eitherCabalPkg
+    return cabalPkg
 
 getCabalFilename :: CabalRepo -> Pkg -> FilePath
 getCabalFilename (CabalRepo path) (Pkg name version)

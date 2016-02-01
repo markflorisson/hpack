@@ -10,6 +10,7 @@ module HPack.Cabal.Cabal
 , parseCabalFile
 , loadCabalFromFile
 , writeCabalFile
+, fixPackageVersions
 , printCabalPkg
 , withinRange
 ) where
@@ -37,6 +38,7 @@ import Distribution.System (Platform(..), Arch, OS, buildPlatform)
 import Distribution.Compiler (CompilerFlavor(GHC))
 import Distribution.ModuleName (components)
 
+import HPack.Monads
 import HPack.Config (Config(..), CompilerVersion)
 import HPack.Source (Pkg(..), ModulePath(..), Version, showVersion)
 
@@ -71,55 +73,52 @@ data CabalPkgRef
 
 type VersionRange = V.VersionRange
 
-
-data CabalCtx = CabalCtx { platform :: Platform, config :: Config }
-
 type CabalTree = CondTree ConfVar [Dependency]
 type CabalCond = Condition ConfVar
 
 
 withinRange = V.withinRange
 
-loadCabalFromFile :: Config -> FilePath -> IO CabalPkg
+loadCabalFromFile :: Config -> FilePath -> IO (CabalPkg, GenericPackageDescription)
 loadCabalFromFile config fileName = do
-    pkgGenDesc <- parseCabalFile fileName
-    let pkgDesc = packageDescription pkgGenDesc
-    let name    = P.unPackageName $ P.pkgName $ package pkgDesc
-    let version = P.pkgVersion $ package pkgDesc
-    let ctx     = CabalCtx buildPlatform config
-    return CabalPkg
+    genPkgDesc  <- parseCabalFile config fileName
+    let pkgDesc  = packageDescription genPkgDesc
+    let name     = P.unPackageName $ P.pkgName $ package pkgDesc
+    let version  = P.pkgVersion $ package pkgDesc
+    cabalPkg <- return CabalPkg
         { name
             = name
         , version
             = version
         , libraryDeps
-            = maybe [] (getDeps ctx) (condLibrary pkgGenDesc)
+            = maybe [] getDeps (condLibrary genPkgDesc)
         , executableDeps
-            = [ (s, getDeps ctx d) | (s, d) <- condExecutables pkgGenDesc ]
+            = [ (s, getDeps d) | (s, d) <- condExecutables genPkgDesc ]
         , testDeps
-            = [ (s, getDeps ctx d) | (s, d) <- condTestSuites pkgGenDesc ]
+            = [ (s, getDeps d) | (s, d) <- condTestSuites genPkgDesc ]
         , benchDeps
-            = [ (s, getDeps ctx d) | (s, d) <- condBenchmarks pkgGenDesc ]
+            = [ (s, getDeps d) | (s, d) <- condBenchmarks genPkgDesc ]
         , exposedMods
-            = getExposedModules pkgGenDesc
+            = getExposedModules genPkgDesc
         }
+    return (cabalPkg, genPkgDesc)
 
-parseCabalFile :: FilePath -> IO GenericPackageDescription
-parseCabalFile filename = do
+parseCabalFile :: Config -> FilePath -> IO GenericPackageDescription
+parseCabalFile config filename = do
     brokenGenPkgDesc <- readPackageDescription verbose filename
     let brokenPkgDesc = packageDescription brokenGenPkgDesc
 
-    let condTree = condLibrary brokenGenPkgDesc
-    let maybeLibrary = fmap condTreeData condTree
+    let maybeCondTree = fmap (pruneTree config) (condLibrary brokenGenPkgDesc)
+    let maybeLibrary = fmap condTreeData maybeCondTree
     let pkgDesc = brokenPkgDesc { library = maybeLibrary }
 
     return $ brokenGenPkgDesc { packageDescription = pkgDesc }
 
 writeCabalFile :: FilePath
                -> GenericPackageDescription
-               -> CabalPkg
+               -- -> CabalPkg
                -> IO ()
-writeCabalFile filename genPkgDesc CabalPkg{..} = do
+writeCabalFile filename genPkgDesc =
     writePackageDescription filename (packageDescription genPkgDesc)
 
     -- withFile filename WriteMode $ \h -> do
@@ -163,8 +162,8 @@ fixPackageVersions pkgs pkgDescription
 ---------------------------------------------------------
 
 getExposedModules :: GenericPackageDescription -> [ModulePath]
-getExposedModules pkgGenDesc = fromMaybe [] $ do
-    CondNode lib _ _ <- condLibrary pkgGenDesc
+getExposedModules genPkgDesc = fromMaybe [] $ do
+    CondNode lib _ _ <- condLibrary genPkgDesc
     return $ map (ModulePath . components) (exposedModules lib)
 
 ---------------------------------------------------------
@@ -199,13 +198,12 @@ foldTree f z tree
             values tree ++ maybe [] values maybeTree
 
 -- | Get all dependencies from the given CabalTree
-getDeps :: CabalCtx -> CabalTree a -> [CabalPkgRef]
-getDeps ctx (CondNode _ deps cs)
+getDeps :: CabalTree a -> [CabalPkgRef]
+getDeps (CondNode _ deps cs)
         = map convertDep deps ++ concatMap getChildrenDeps cs
     where
         getChildrenDeps (cond, tree, maybeTree)
-                = getDeps ctx tree ++
-                  maybe [] (getDeps ctx) maybeTree
+            = getDeps tree ++ maybe [] getDeps maybeTree
 
         convertDep :: Dependency -> CabalPkgRef
         convertDep (Dependency pkgName versionRange)
@@ -213,44 +211,43 @@ getDeps ctx (CondNode _ deps cs)
 
 -- | Prune any subtrees that don't satisfy the cabal conditions
 -- as specified in the .cabal file (platform, architecture, etc)
-pruneTree :: CabalCtx -> CabalTree a -> CabalTree a
-pruneTree ctx (CondNode treeData treeConstraints treeComponents) =
+pruneTree :: Config -> CabalTree a -> CabalTree a
+pruneTree config (CondNode treeData treeConstraints treeComponents) =
     let cs = catMaybes (map get treeComponents)
     in  CondNode treeData treeConstraints cs
     where
         get :: (CabalCond, CabalTree a, Maybe (CabalTree a))
             -> Maybe (CabalCond, CabalTree a, Maybe (CabalTree a))
         get (cond, tree, maybeTree)
-            | evalCond ctx cond
-            , tree' <- pruneTree ctx tree
-            , maybeTree' <- fmap (pruneTree ctx) maybeTree
+            | evalCond config cond
+            , tree' <- pruneTree config tree
+            , maybeTree' <- fmap (pruneTree config) maybeTree
                 = Just (cond, tree', maybeTree')
             | otherwise
                 = Nothing
 
-evalCond :: CabalCtx -> CabalCond -> Bool
-evalCond ctx cond
-    | Var v      <- cond = evalV v
+evalCond :: Config -> CabalCond -> Bool
+evalCond config cond
+    | Var v      <- cond = evalConfVar v
     | Lit b      <- cond = b
     | CNot c     <- cond = not $ evalC c
     | COr c1 c2  <- cond = evalC c1 || evalC c2
     | CAnd c1 c2 <- cond = evalC c1 && evalC c2
     where
-        evalC = evalCond ctx
-        evalV = evalConfVar ctx
+        evalC = evalCond config
 
-evalConfVar :: CabalCtx -> ConfVar -> Bool
-evalConfVar (CabalCtx (Platform arch os) _) (OS os')
-    = os == os'
-evalConfVar (CabalCtx (Platform arch os) _) (Arch arch')
-    = arch == arch'
-evalConfVar ctx (Flag flagName)
-    = False -- TODO: initialize with defaults
-            -- (see https://www.haskell.org/cabal/users-guide/developing-packages.html#executables)
-evalConfVar (CabalCtx _ config) (Impl GHC compilerVersionRange)
-    = V.withinRange (compilerVersion config) compilerVersionRange
-evalConfVar ctx (Impl _ _)
-    = False -- we only do GHC for now
+        evalConfVar :: ConfVar -> Bool
+        evalConfVar (OS os')
+            = os config == os'
+        evalConfVar (Arch arch')
+            = arch config == arch'
+        evalConfVar (Flag flagName)
+            = False -- TODO: initialize with defaults
+                    -- (see https://www.haskell.org/cabal/users-guide/developing-packages.html#executables)
+        evalConfVar (Impl GHC compilerVersionRange)
+            = V.withinRange (compilerVersion config) compilerVersionRange
+        evalConfVar (Impl _ _)
+            = False -- we only do GHC for now
 
 ---------------------------------------------------------
 

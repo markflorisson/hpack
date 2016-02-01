@@ -3,6 +3,8 @@ module HPack.Config
 where
 
 import Data.Version (Version(..))
+import Distribution.System
+    (Platform, Arch, OS, buildPlatform, buildArch, buildOS)
 
 type CompilerVersion = Version
 
@@ -11,12 +13,18 @@ data Config
         { cabalPath       :: FilePath
         , ghcPath         :: FilePath
         , compilerVersion :: CompilerVersion
+        , platform        :: Platform
+        , arch            :: Arch
+        , os              :: OS
         }
 
 defaultConfig :: Config
 defaultConfig
     = Config
-        { cabalPath = "cabal"
-        , ghcPath = "ghc"
+        { cabalPath       = "cabal"
+        , ghcPath         = "ghc"
         , compilerVersion = Version [7, 10, 1] []
+        , platform        = buildPlatform
+        , arch            = buildArch
+        , os              = buildOS
         }

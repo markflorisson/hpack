@@ -7,11 +7,8 @@ import System.IO.Error (IOError, tryIOError)
 import System.Exit (ExitCode(..))
 import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
-import Control.Monad (forM_)
 
--- import Control.Monad.IO.Class (MonadIO, liftIO)
--- import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
-
+import HPack.Monads
 import HPack.Source.Package (Pkg(..), Version, showVersion)
 import HPack.Cache (Cache, newCache, addElem)
 import HPack.Config (Config(..))

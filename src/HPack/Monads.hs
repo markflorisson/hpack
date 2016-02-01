@@ -4,8 +4,9 @@ module HPack.Monads
 , HPackM, runHPackM
 , M.MonadIO
 , lift, liftIO, M.liftM, M.liftM2, M.liftM3
+, M.mapM, M.mapM_, M.forM, M.forM_, M.when, M.void
 , mapLeft, liftEither, liftMaybe
-, try, throw, catch, finally
+, try, throw, catch, finally, tryIO
 , put, get, modify
 , random, uniform, shuffle
 ) where
@@ -20,6 +21,7 @@ import qualified Control.Monad.Reader.Class as M
 import qualified Control.Monad.Trans.Class  as M
 import qualified Control.Monad.Trans.State  as M
 import qualified Control.Monad.Trans.Except as M
+import System.IO.Error                      as M
     -- (ExceptT, runExceptT, throwE, catchE, withExceptT)
 
 -- | Monad that handles state and exceptions. Make sure it is abstract
@@ -74,6 +76,11 @@ catch (HPackT m) f = HPackT $ M.catchE m (unHPackT . f)
 
 try :: Monad m => HPackT e s m a -> HPackT e s m (Either e a)
 try = HPackT . M.lift . M.runExceptT . unHPackT
+
+tryIO :: M.MonadIO m => (IOError -> e) -> IO a -> HPackT e s m a
+tryIO f m = do
+    eitherVal <- liftIO $ catchIOError (M.liftM Right m) (return . Left . f)
+    liftEither eitherVal
 
 finally :: Monad m
         => HPackT e s m a
