@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module HPack.Iface.IfaceExtract
-( extractPkgInterface, extract, match )
+( ExtractM, runExtractM, extract )
 where
 
 import GHC
@@ -17,68 +17,104 @@ import Avail (AvailInfo, availName)
     -- be stable. Instead use 'availName' etc
 -- compiler/utils/Outputable.hs
 import Outputable (SDoc, ppr, text, (<>), (<+>))
--- compiler/iface/IfaceSyn
-import IfaceSyn (IfaceDecl(..))
 import GHC.Fingerprint (Fingerprint)
 import GHC.Generics
+import IfaceSyn
+import OccName
 
+import Data.String.Utils (split)
 import qualified Data.Map as M
-import Control.Monad.IO.Class (liftIO)
+import qualified Data.Set as S
+import System.FilePath ((</>))
 
 import HPack.Iface.Iface
+import HPack.Iface.IfaceRepo
+import HPack.Iface.LoadIface
 import HPack.Cabal (CabalPkg)
-import HPack.Source (Pkg, ModulePath)
-import HPack.System (PkgDB, PkgId)
+import HPack.Source (Pkg(..), ModulePath(..))
+import HPack.System (PkgDB, PkgId, getBuildDir, lookupPkg)
 import HPack.Ghc (SDoc, ghcShow, ghcShowSDoc)
+import HPack.Monads
 import HPack.JSON
 
-extractPkgInterface :: PkgDB -> PkgId -> Pkg -> IO PkgInterface
-extractPkgInterface = undefined
+type ExtractM = IfaceRepoM IfaceM
 
-extractModInterface :: PkgDB -> PkgId -> ModulePath -> IO ModInterface
-extractModInterface pkgDB pkdId path =
-    ModInterface <$> providedNames pkgDB path
-                 <*> requiredNames pkgDB path
+runExtractM :: ExtractM a -> IO (Either Err a)
+runExtractM = undefined
 
-providedNames :: PkgDB -> ModulePath -> IO [Symbol]
-providedNames pkgdb path = undefined
+extract :: PkgDB -> PkgId -> ExtractM PkgInterface
+extract pkgDB pkgId = do
+    let buildDir = getBuildDir pkgDB pkgId
+    let dirWithCompiledFiles = buildDir </> "dist" </> "build"
+    let modNames = undefined
+    let Just (Pkg name version) = lookupPkg pkgDB pkgId
+    modIfaces <-
+        forM modNames $ \modName -> do
+            modIface <- lift $ compileAndLoadIface dirWithCompiledFiles modName
+            liftIO $ extractIface modIface
+    let modPaths = map modulePath modNames
+    return $ PkgInterface name version (M.fromList (zip modPaths modIfaces))
 
-requiredNames :: PkgDB -> ModulePath -> IO [Symbol]
-requiredNames pkgdb path = undefined
+modulePath :: String -> ModulePath
+modulePath = ModulePath . split "."
 
-resolveSymbol :: Name -> Origin -> Symbol
-resolveSymbol = undefined
+extractIface :: ModIface -> IO ModInterface
+extractIface modIface = undefined
 
-extract :: ModIface -> Ghc ModInterface
-extract modIface = do
-    liftIO $ putStrLn "Exported Symbols....................."
-    exports <- mapM (ghcShow . availName) (mi_exports modIface)
-    liftIO $ mapM_ print exports
+extractDecl :: IfaceDecl -> Maybe Symbol
+extractDecl IfaceId{..}
+    | name     <- extractName ifName
+    , origin   <- extractOrigin ifName
+    , typ      <- extractType ifType
+    = Just (Fun name origin typ)
+extractDecl IfaceData{..}
+    | name     <- extractName ifName
+    , origin   <- extractOrigin ifName
+    -- , kind     <- extractKind ifKind
+        -- ^ this field does not exist in ghc 7.10
+    , tyvars   <- map extractTypeVar ifTyVars
+    , datacons <- extractDataCons ifCons
+    -- NOTE: record fields are already exported as functions (IfaceId)
+    = Just (DataType name origin tyvars datacons)
+extractDecl IfaceSynonym{..}
+    | name     <- extractName ifName
+    , origin   <- extractOrigin ifName
+    , kind     <- extractKind ifSynKind
+    , tyvars   <- map extractTypeVar ifTyVars
+    , rhs      <- extractType ifSynRhs
+    = Just (TypeSynonym name origin kind tyvars rhs)
+extractDecl IfaceClass{..}
+    | name     <- extractName ifName
+    , origin   <- extractOrigin ifName
+    , sigs     <- S.fromList (map extractMethodSignature ifSigs)
+    = Just (ClassDef name origin sigs)
+extractDecl IfaceFamily{..}
+    = Nothing -- TODO
+extractDecl IfaceAxiom{..}
+    = Nothing -- TODO
+extractDecl IfacePatSyn{..}
+    = Nothing -- TODO
 
-    liftIO $ putStrLn "Exported..................."
-    decls <- mapM ghcShow (mi_decls modIface)
-    liftIO $ mapM_ print decls
-    -- (fingerPrint, decl) |
+extractName :: OccName -> String
+extractName = occNameString
 
-    liftIO $ putStrLn "Exported list......................"
-    syms <- mapM ghcShowSDoc (map declKind (mi_decls modIface))
-    liftIO $ mapM_ print syms
+extractOrigin :: OccName -> Origin
+extractOrigin = undefined
 
-    return $ ModInterface [] []
+extractType :: IfaceType -> Type
+extractType = undefined
 
-extractExport :: AvailInfo -> SDoc
-extractExport export =
-    ppr $ availName export
+extractTypeVar :: IfaceTvBndr -> TypeVar
+extractTypeVar = undefined
 
-declKind :: (Fingerprint, IfaceDecl) -> SDoc
-declKind (hash, decl)
-    | IfaceId{..}   <- decl    = p "IfaceId"
-    | IfaceData{..} <- decl    = p "IfaceData"
-    | IfaceSynonym{..} <- decl = p "IfaceSynonym"
-    | IfaceFamily{..}  <- decl = p "IfaceFamily"
-    | IfaceClass{..} <- decl   = p "IfaceClass"
-    | IfaceAxiom{..} <- decl   = p "IfaceAxiom"
-    | IfacePatSyn{..} <- decl  = p "IfacePatSyn"
-    where
-        p :: String -> SDoc
-        p ctor = ppr hash <+> text ctor <> text ":" <+> ppr (ifName decl)
+extractKind :: IfaceKind -> Kind
+extractKind = undefined
+
+extractDataCons :: IfaceConDecls -> [DataCon]
+extractDataCons = undefined
+
+extractDataCon :: IfaceConDecl -> DataCon
+extractDataCon = undefined
+
+extractMethodSignature :: IfaceClassOp -> Symbol
+extractMethodSignature = undefined

@@ -19,7 +19,7 @@ import qualified Data.Set as S
 import GHC.Generics
 
 import HPack.Cabal (CabalPkg)
-import HPack.Source (Pkg, ModulePath)
+import HPack.Source (Pkg, ModulePath, Version)
 import HPack.System.PkgDB (PkgDB, PkgId)
 import HPack.Monads
 import HPack.JSON
@@ -30,7 +30,7 @@ type Type = String
 data PkgInterface
     = PkgInterface
         { pkgName :: String
-        , pkgVersion :: String
+        , pkgVersion :: Version
         , modules :: M.Map ModulePath ModInterface
         }
         deriving (Eq, Ord, Show, Generic)

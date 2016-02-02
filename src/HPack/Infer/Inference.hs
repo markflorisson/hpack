@@ -18,7 +18,7 @@ import HPack.Solver (SolverFlags(..), DepGraph, Disj(..), loadGraph, lookupPkg)
 import HPack.Iface
     ( IfaceRepo, IfaceRepoM, runIfaceRepoM, IfaceRepoError
     , getPkgIface, addPkgIface
-    , PkgInterface, extractPkgInterface
+    , ExtractM, PkgInterface, runExtractM, extract
     )
 import HPack.Monads
 
@@ -81,7 +81,7 @@ runInferM computation state = do
 
 liftCabalRepoM :: Monad m => CabalRepoM m a -> InferM m a
 liftCabalRepoM m = do
-    result <- undefined -- lift $ runCabalRepoM m
+    result <- lift $ lift $ runCabalRepoM m
     tryEither $ mapLeft CabalError result
 
 inferIface :: MonadIO m => Config -> Pkg -> InferM m PkgInterface
@@ -199,10 +199,8 @@ build config depGraph pkg buildConfiguration = do
       plan <- computeBuildPlan pkg
       maybePkgId <- buildPackage plan
       case maybePkgId of
-          Just pkgId ->
-              liftIO $ liftM Just $ extractPkgInterface pkgDB pkgId pkg
-          Nothing ->
-              return Nothing
+          Just pkgId -> extractPkgIface pkgId
+          Nothing    -> return Nothing
     where
         computeBuildPlan :: MonadIO m => Pkg -> InferM m BuildPlan
         computeBuildPlan pkg = undefined
@@ -210,6 +208,15 @@ build config depGraph pkg buildConfiguration = do
         buildPackage :: MonadIO m => BuildPlan -> InferM m (Maybe PkgId)
         buildPackage buildPlan = undefined
 
+        extractPkgIface :: MonadIO m
+                        => PkgId
+                        -> InferM m (Maybe PkgInterface)
+        extractPkgIface pkgId = do
+            State{..} <- get
+            eitherPkgIface <- liftIO $ runExtractM $ extract pkgDB pkgId
+            case eitherPkgIface of
+                Left err       -> return Nothing
+                Right pkgIface -> return (Just pkgIface)
 
 
 

@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 module HPack.System.PkgDB
-
 where
 
 import qualified Data.Map as M
@@ -156,7 +155,7 @@ tryCompile config srcRepo pkg@(Pkg name version) dependencies = do
         --      pkgDB/my-pkg/0.1.0.0.0.1829373
         --
         pkgId <- freshVersion version
-        let buildDir = dbLocation </> name </> showVersion pkgId
+        let buildDir = getBuildDir pkgDB pkgId
         io $ createDirectoryIfMissing True buildDir
 
         -- 2) copy package sources into build directory
@@ -247,3 +246,11 @@ lookupRenamedPkg PkgDB{..} pkgId
         = Just (Pkg name version)
     | otherwise
         = Nothing
+
+lookupPkg :: PkgDB -> PkgId -> Maybe Pkg
+lookupPkg PkgDB{..} pkgId = M.lookup pkgId pkgInfo
+
+getBuildDir :: PkgDB -> PkgId -> FilePath
+getBuildDir PkgDB{..} pkgId
+    | Just (Pkg name _) <- M.lookup pkgId pkgInfo
+        = dbLocation </> name </> showVersion pkgId

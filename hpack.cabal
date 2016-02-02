@@ -39,7 +39,8 @@ library
                        filepath, containers, temporary, vector,
                        directory, ghc-tcplugins-extra, bytestring,
                        process, mtl, MonadRandom, random-shuffle,
-                       aeson, text, random, deepseq, union-find
+                       aeson, text, random, deepseq, union-find,
+                       MissingH
   exposed-modules:     HPack.Source
                        HPack.Cabal
                        HPack.Build
