@@ -30,6 +30,9 @@ data ModulePath = ModulePath [String]
 instance Show Pkg where
     show (Pkg name version) = name ++ "-" ++ showVersion version
 
+instance Show ModulePath where
+    show (ModulePath xs) = intercalate "." xs
+
 showVersion :: V.Version -> String
 showVersion (V.Version versionInfo tags)
     = intercalate "." (map show versionInfo ++ tags)

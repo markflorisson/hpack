@@ -1,4 +1,5 @@
-module HPack.Infer.Iface
+{- | Use GHC to load a ModIface from a .hi file -}
+module HPack.Iface.LoadIface
 ( IfaceM
 , Err(..)
 , ModName

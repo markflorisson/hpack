@@ -5,7 +5,7 @@ import System.Exit (exitWith, ExitCode(ExitSuccess, ExitFailure))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Class (lift)
 
-import HPack.Infer (runIfaceM, compileAndLoadIface, showModIface, liftGhc, extract)
+import HPack.Iface (runIfaceM, compileAndLoadIface, showModIface, liftGhc, extract)
 
 main :: IO ()
 main = do

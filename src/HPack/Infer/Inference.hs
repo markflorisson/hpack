@@ -15,10 +15,11 @@ import HPack.Source (Pkg(..), ModulePath, SourceRepo)
 import HPack.Cabal (CabalRepo, CabalRepoM, CabalPkg, CabalError, loadCabalFromPkg, runCabalRepoM)
 import HPack.System (PkgDB, PkgId)
 import HPack.Solver (SolverFlags(..), DepGraph, Disj(..), loadGraph, lookupPkg)
-import HPack.Infer.IfaceRepo
+import HPack.Iface
     ( IfaceRepo, IfaceRepoM, runIfaceRepoM, IfaceRepoError
-    , getPkgIface, addPkgIface)
-import HPack.Infer.IfaceExtract (PkgInterface, extractPkgInterface)
+    , getPkgIface, addPkgIface
+    , PkgInterface, extractPkgInterface
+    )
 import HPack.Monads
 
 -- | Monad used in the inference process
@@ -43,9 +44,7 @@ data State
 
 -- | A particular package build configuration, indicating which versions
 -- of the immediate package dependencies are to be chosen for some pkg
--- data BuildConfiguration
---     = BuildConfiguration
---         { immediateDeps :: [Pkg] }
+type BuildConfiguration = [Pkg]
 
 -- | A possible plan to be proposed for compilation and interface extraction
 data BuildPlan
@@ -55,7 +54,6 @@ data BuildPlan
         , solverFlags :: SolverFlags
         }
 
-type BuildConfiguration = [Pkg]
 
 -- | Run the intererence monad, returning an updated package and
 -- interface repository
@@ -84,31 +82,31 @@ runInferM computation state = do
 liftCabalRepoM :: Monad m => CabalRepoM m a -> InferM m a
 liftCabalRepoM m = do
     result <- undefined -- lift $ runCabalRepoM m
-    liftEither $ mapLeft CabalError result
+    tryEither $ mapLeft CabalError result
 
-inferIface :: MonadIO m => Pkg -> InferM m PkgInterface
-inferIface pkg@(Pkg name version) = do
+inferIface :: MonadIO m => Config -> Pkg -> InferM m PkgInterface
+inferIface config pkg@(Pkg name version) = do
     State{..} <- get
     eitherGraph <- liftIO $ loadGraph cabalRepo config pkg
-    depGraph <- liftEither $ mapLeft CabalError eitherGraph
-    infer depGraph pkg
+    depGraph <- tryEither $ mapLeft CabalError eitherGraph
+    infer config depGraph pkg
 
 -- | Find the possibilities for each dependency of a given package
 findDeps :: Monad m => DepGraph -> Pkg -> InferM m [Disj]
-findDeps depGraph pkg = liftMaybe (PkgNotInGraph pkg) (lookupPkg pkg depGraph)
+findDeps depGraph pkg = tryMaybe (PkgNotInGraph pkg) (lookupPkg pkg depGraph)
 
 -- | Infer a package interface for the given package, or raise an exception
 -- in the InferM monad
 --
 -- TODO: keep a stack to guard against cyclic dependencies
 --
-infer :: MonadIO m => DepGraph -> Pkg -> InferM m PkgInterface
-infer depGraph pkg = findPkgIface $ do
+infer :: MonadIO m => Config -> DepGraph -> Pkg -> InferM m PkgInterface
+infer config depGraph pkg = findPkgIface $ do
         immediateDeps <- findDeps depGraph pkg
 
         -- build immediate dependencies
         forM_ immediateDeps $ \(Disj deps) ->
-            mapM_ (infer depGraph) deps
+            mapM_ (infer config depGraph) deps
 
         -- generate all possible build configurations we can try randomly
         configurations <- randomConfigurations immediateDeps
@@ -142,7 +140,7 @@ infer depGraph pkg = findPkgIface $ do
             => [BuildConfiguration]
             -> InferM m (Maybe (BuildConfiguration, PkgInterface))
         findFirstConfiguration (c:cs) = do
-            maybeIface <- build depGraph pkg c
+            maybeIface <- build config depGraph pkg c
             case maybeIface of
                 Just iface -> return (Just (c, iface))
                 Nothing    -> findFirstConfiguration cs
@@ -190,9 +188,13 @@ infer depGraph pkg = findPkgIface $ do
                     | otherwise     = pkg'
 
 -- | Build a package against the given versions of its immediate dependencies
-build :: MonadIO m => DepGraph -> Pkg -> BuildConfiguration
+build :: MonadIO m
+      => Config
+      -> DepGraph                       -- versioned-based dependency graph
+      -> Pkg                            -- package to build
+      -> BuildConfiguration             -- immediate dependencies
       -> InferM m (Maybe PkgInterface)
-build depGraph pkg buildConfiguration = do
+build config depGraph pkg buildConfiguration = do
       State{..} <- get
       plan <- computeBuildPlan pkg
       maybePkgId <- buildPackage plan

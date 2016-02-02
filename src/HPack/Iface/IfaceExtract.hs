@@ -1,10 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE DeriveGeneric #-}
 
-module HPack.Infer.IfaceExtract
-(PkgInterface(..), ModInterface(..), Symbol(..), Origin(..), Signature(..)
-, extractPkgInterface, extract
-) where
+module HPack.Iface.IfaceExtract
+( extractPkgInterface, extract, match )
+where
 
 import GHC
     ( getSessionDynFlags, setSessionDynFlags
@@ -27,54 +25,12 @@ import GHC.Generics
 import qualified Data.Map as M
 import Control.Monad.IO.Class (liftIO)
 
+import HPack.Iface.Iface
 import HPack.Cabal (CabalPkg)
 import HPack.Source (Pkg, ModulePath)
 import HPack.System (PkgDB, PkgId)
 import HPack.Ghc (SDoc, ghcShow, ghcShowSDoc)
 import HPack.JSON
-
-type Name       = String
-type Signature  = String
-
-data PkgInterface
-    = PkgInterface
-        { name :: String
-        , version :: String
-        , modules :: M.Map ModulePath ModInterface
-        }
-        deriving (Generic)
-
-data ModInterface
-    = ModInterface
-        { provides :: [Symbol]
-        , requires :: [Symbol]
-        }
-        deriving (Eq, Show, Generic)
-
-data Symbol
-    = TyCon     Name Origin Signature
-    | DataCon   Name Origin Signature
-    | Fun       Name Origin Signature
-    | ClassDef  Name Origin
-    | ClassInst Name Origin
-    deriving (Eq, Show, Generic)
-
-data Origin = Origin
-    { exportingPkg :: PkgId     -- ^ the package that exports the symbol
-    }
-    deriving (Eq, Show, Generic)
-
-
-instance ToJSON PkgInterface
-instance ToJSON ModInterface
-instance ToJSON Symbol
-instance ToJSON Origin
-
-instance FromJSON PkgInterface
-instance FromJSON ModInterface
-instance FromJSON Symbol
-instance FromJSON Origin
-
 
 extractPkgInterface :: PkgDB -> PkgId -> Pkg -> IO PkgInterface
 extractPkgInterface = undefined
@@ -92,9 +48,6 @@ requiredNames pkgdb path = undefined
 
 resolveSymbol :: Name -> Origin -> Symbol
 resolveSymbol = undefined
-
-(<:) :: Signature -> Signature -> Bool
-t1 <: t2 = undefined
 
 extract :: ModIface -> Ghc ModInterface
 extract modIface = do
@@ -129,5 +82,3 @@ declKind (hash, decl)
     where
         p :: String -> SDoc
         p ctor = ppr hash <+> text ctor <> text ":" <+> ppr (ifName decl)
-
----------------------------------------------------------

@@ -39,11 +39,12 @@ library
                        filepath, containers, temporary, vector,
                        directory, ghc-tcplugins-extra, bytestring,
                        process, mtl, MonadRandom, random-shuffle,
-                       aeson, text, random, deepseq
+                       aeson, text, random, deepseq, union-find
   exposed-modules:     HPack.Source
                        HPack.Cabal
                        HPack.Build
                        HPack.System
+                       HPack.Iface
                        HPack.Infer
                        HPack.Solver
                        HPack.Config
@@ -53,10 +54,11 @@ library
                        HPack.Cabal.CabalRepo
                        -- HPack.Build.*
                        HPack.System.PkgDB
-                       HPack.System.Plan
-                       HPack.Infer.Iface
-                       HPack.Infer.IfaceExtract
-                       HPack.Infer.IfaceRepo
+                       -- HPack.System.Plan
+                       HPack.Iface.Iface
+                       HPack.Iface.IfaceExtract
+                       HPack.Iface.IfaceRepo
+                       HPack.Iface.LoadIface
                        HPack.Infer.Inference
                        -- HPack.Infer.Parser
                        -- HPack.Infer.Preprocess

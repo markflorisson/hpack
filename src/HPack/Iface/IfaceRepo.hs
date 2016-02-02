@@ -1,4 +1,4 @@
-module HPack.Infer.IfaceRepo
+module HPack.Iface.IfaceRepo
 ( IfaceRepo(..), IfaceRepoM, IfaceRepoError(..)
 , runIfaceRepoM, addPkgIface, getPkgIface
 ) where
@@ -13,7 +13,7 @@ import qualified Data.ByteString.Lazy as BS
 import HPack.Monads
 import HPack.System (PkgId(..))
 import HPack.Source (Pkg(..), ModulePath(..), showVersion)
-import HPack.Infer.IfaceExtract
+import HPack.Iface.Iface
     (PkgInterface(..), ModInterface(..), Symbol(..), Origin(..))
 import HPack.JSON
 
@@ -74,6 +74,7 @@ getPkgIface pkg = do
             return (Just pkgIface)
         else return Nothing
     where
+        -- | Load and parse a JSON package interface from disk
         loadFile :: MonadIO m => FilePath -> IfaceRepoM m PkgInterface
         loadFile fileName = do
             contents <- liftIO $ BS.readFile fileName
