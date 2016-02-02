@@ -5,7 +5,8 @@ import System.Exit (exitWith, ExitCode(ExitSuccess, ExitFailure))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Class (lift)
 
-import HPack.Iface (runIfaceM, compileAndLoadIface, showModIface, liftGhc, extract)
+import HPack.Iface
+    (ModName(..), runIfaceM, compileAndLoadIface, showModIface, liftGhc, extract)
 
 main :: IO ()
 main = do
@@ -17,9 +18,8 @@ main = do
 loadIface :: String -> IO ()
 loadIface modName = do
     eitherModIface <- runIfaceM $ do
-        modIface <- compileAndLoadIface modName False
-        iface <- lift $ extract modIface
-        liftIO $ print iface
+        modIface <- compileAndLoadIface "." modName
+        -- iface <- lift $ extract modIface
         showModIface modIface
     case eitherModIface of
         Left e         -> failure (show e)

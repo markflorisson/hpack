@@ -2,18 +2,16 @@
 module HPack.Iface.LoadIface
 ( IfaceM
 , Err(..)
-, ModName
+, ModName(..)
 , ModIface
 , runIfaceM
 , liftGhc
-, mainCompile
-, mainLoadIface
 , compileAndLoadIface
 , showModIface
 ) where
 
 import GHC
-    ( getSessionDynFlags, setSessionDynFlags
+    ( getSessionDynFlags, setSessionDynFlags, workingDirectoryChanged
     , runGhc, Ghc, GhcMonad
     , defaultErrorHandler, SuccessFlag(..)
     , ModIface, mkModuleName, findModule, getModuleInfo, modInfoIface
@@ -21,15 +19,22 @@ import GHC
     )
 import GHC.Paths (libdir)
 import LoadIface (pprModIface)
+import BinIface (readBinIface, CheckHiWay(..), TraceBinIFaceReading(..))
+import TcRnMonad (initTcRnIf)
+import HscTypes (HscEnv)
+import HscMain (newHscEnv)
 import DynFlags (DynFlags, defaultFatalMessager, defaultFlushOut)
 import Outputable (Outputable(..), showSDoc, ppr)
 
+import System.Directory (setCurrentDirectory)
+import System.FilePath ((</>))
 import Control.Monad (liftM, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE, catchE)
 import Control.Monad.Trans.Class (lift)
 
 import HPack.Ghc
+import HPack.Source (Pkg(..))
 
 type ModName = String
 
@@ -49,47 +54,41 @@ runIfaceM = defaultErrorHandler defaultFatalMessager defaultFlushOut
           . runExceptT
 
 -- | First compile the package, then load the interface
-compileAndLoadIface :: ModName -> Bool -> IfaceM ModIface
-compileAndLoadIface modName isMain
-    = do liftIO $ putStrLn $ "Loading module: " ++ modName
-         let ifaceName = if isMain then "Main" else modName
-         mainCompile modName >> mainLoadIface modName
+compileAndLoadIface :: FilePath -> ModName -> IfaceM ModIface
+compileAndLoadIface buildDir modName = do
+    liftIO $ putStrLn $ "Loading module: " ++ show modName
+    chdir buildDir
+    lift initDynFlags
+    loadIface modName
 
----------------------------------------------------------
+-- | Change the working directory and inform GHC
+chdir :: FilePath -> IfaceM ()
+chdir path = do
+    liftIO (setCurrentDirectory path)
+    lift workingDirectoryChanged
 
--- | Compile the given module name
--- TODO: We may want to replace this by a 'cabal build' instead
-mainCompile :: ModName -> IfaceM ()
-mainCompile modName = do
-    result <- lift $ compileTarget modName
-    case result of
-        Succeeded -> return ()
-        Failed    -> throwE $ CompileErr modName
-
-compileTarget :: ModName -> Ghc SuccessFlag
-compileTarget modName = do
-    initDynFlags
-    target <- guessTarget modName Nothing
-    setTargets [target]
-    load LoadAllTargets
-
----------------------------------------------------------
 
 -- | Load the interface information for the given module
-mainLoadIface :: ModName -> IfaceM ModIface
-mainLoadIface modName = do
-    maybeIface <- lift $ loadIface modName
-    case maybeIface of
-        Just iface -> return iface
-        Nothing    -> throwE $ IfaceErr modName
-
-loadIface :: ModName -> Ghc (Maybe ModIface)
+loadIface :: ModName -> IfaceM ModIface
 loadIface modName = do
-    -- find the module loaded through compilation
-    mod <- findModule (mkModuleName modName) Nothing
-    -- extract module interface information
-    maybeModInfo <- getModuleInfo mod
-    return $ modInfoIface =<< maybeModInfo
+    let filePath = haskellInterfacePath modName
+    dynflags <- lift getSessionDynFlags
+    iface <- liftIO $ readIface dynflags filePath
+    return iface
+
+    where
+        -- | Read binary interface (adapted from 'showIface' in GHC's
+        --      iface/LoadIface.hs)
+        readIface :: DynFlags -> FilePath -> IO ModIface
+        readIface dynflags filename = do
+            hscEnv <- newHscEnv dynflags
+            initTcRnIf 's' hscEnv () () $
+                readBinIface IgnoreHiWay TraceBinIFaceReading filename
+
+-- | Determine the path to the .hi file for a given module name "Foo.Bar.Baz"
+haskellInterfacePath :: ModName -> FilePath
+haskellInterfacePath modName =
+    [ if c == '.' then '/' else c | c <- modName ] ++ ".hi"
 
 ---------------------------------------------------------
 
@@ -97,5 +96,5 @@ showModIface :: ModIface -> IfaceM String
 showModIface modIface = liftGhc $ ghcShowSDoc $ pprModIface modIface
 
 instance Show Err where
-    show (CompileErr m) = "Failed to compile " ++ m ++ "."
-    show (IfaceErr m)   = "Failed to load interface for " ++ m ++ "."
+    show (CompileErr m) = "Failed to compile " ++ show m ++ "."
+    show (IfaceErr m)   = "Failed to load interface for " ++ show m ++ "."
