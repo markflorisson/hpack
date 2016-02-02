@@ -73,7 +73,7 @@ runDB :: MonadIO m => FilePath -> DB m a -> m (Either DBErr (a, PkgDB))
 runDB path computation
     | initialPkgDB <- PkgDB path M.empty M.empty M.empty
     = flip runHPackT initialPkgDB $ do
-        liftIO $ createDirectoryIfMissing False path
+        io $ createDirectoryIfMissing False path
         loadPkgDB
         val <- computation
         savePkgDB
@@ -85,10 +85,10 @@ loadPkgDB :: MonadIO m => DB m ()
 loadPkgDB = do
     dbPath <- liftM dbLocation get
     filename <- getJSONFileName
-    haveFile <- liftIO $ doesFileExist filename
+    haveFile <- io $ doesFileExist filename
     if not haveFile
         then return ()
-        else do contents <- liftIO $ BS.readFile filename
+        else do contents <- io $ BS.readFile filename
                 case decode contents of
                     Just pkgDB ->
                         -- keep the path from the new location if the
@@ -102,7 +102,7 @@ savePkgDB :: MonadIO m => DB m ()
 savePkgDB = do
     filename <- getJSONFileName
     pkgDB <- get
-    liftIO $ BS.writeFile filename $ encode pkgDB
+    io $ BS.writeFile filename $ encode pkgDB
 
 getJSONFileName :: Monad m => DB m FilePath
 getJSONFileName = do
@@ -149,7 +149,7 @@ tryCompile config srcRepo pkg@(Pkg name version) dependencies = do
         pkgDB      <- get
 
         -- 0) Download package sources
-        (srcRepo', pkgLocation) <- liftIO (getSourceForPkg srcRepo pkg)
+        (srcRepo', pkgLocation) <- io (getSourceForPkg srcRepo pkg)
 
         -- 1) allocate build directory in package repo:
         --
@@ -157,7 +157,7 @@ tryCompile config srcRepo pkg@(Pkg name version) dependencies = do
         --
         pkgId <- freshVersion version
         let buildDir = dbLocation </> name </> showVersion pkgId
-        liftIO $ createDirectoryIfMissing True buildDir
+        io $ createDirectoryIfMissing True buildDir
 
         -- 2) copy package sources into build directory
         tryIO DBIOError $ cloneDir pkgLocation buildDir
@@ -235,7 +235,7 @@ findCompilations pkgDB pkg =
 lookupRenamedPkg' :: Monad m => PkgId -> DB m Pkg
 lookupRenamedPkg' pkgId = do
     pkgDB <- get
-    liftMaybe (DBPkgNotFound pkgId) (lookupRenamedPkg pkgDB pkgId)
+    tryMaybe (DBPkgNotFound pkgId) (lookupRenamedPkg pkgDB pkgId)
 
 -- | Lookup the package with the renamed version for a given PkgId
 lookupRenamedPkg :: PkgDB -> PkgId -> Maybe Pkg

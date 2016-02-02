@@ -5,8 +5,7 @@ module HPack.Monads
 , M.MonadIO
 , lift, liftIO, M.liftM, M.liftM2, M.liftM3
 , M.mapM, M.mapM_, M.forM, M.forM_, M.when, M.void
-, mapLeft, liftEither, liftMaybe
-, try, throw, catch, finally, tryIO
+, mapLeft, try, throw, catch, finally, tryEither, tryMaybe, tryIO
 , put, get, modify
 , random, uniform, shuffle
 ) where
@@ -49,7 +48,7 @@ liftIO :: M.MonadIO m => IO a -> HPackT e s m a
 liftIO = M.liftIO
 
 runIO :: M.MonadIO m => IO (Either e a) -> HPackT e s m a
-runIO m = liftIO m >>= liftEither
+runIO m = liftIO m >>= tryEither
 
 -------------------------------------------------------
 -- Exceptions
@@ -57,13 +56,6 @@ runIO m = liftIO m >>= liftEither
 mapLeft :: (e1 -> e2) -> Either e1 a -> Either e2 a
 mapLeft f (Left e)  = Left (f e)
 mapLeft f (Right x) = Right x
-
-liftEither :: Monad m => Either e a -> HPackT e s m a
-liftEither = HPackT . M.ExceptT . return
-
-liftMaybe :: Monad m => e -> Maybe a -> HPackT e s m a
-liftMaybe e (Just x) = return x
-liftMaybe e Nothing  = throw e
 
 throw :: Monad m => e -> HPackT e s m a
 throw = HPackT . M.throwE
@@ -77,10 +69,17 @@ catch (HPackT m) f = HPackT $ M.catchE m (unHPackT . f)
 try :: Monad m => HPackT e s m a -> HPackT e s m (Either e a)
 try = HPackT . M.lift . M.runExceptT . unHPackT
 
+tryEither :: Monad m => Either e a -> HPackT e s m a
+tryEither = HPackT . M.ExceptT . return
+
+tryMaybe :: Monad m => e -> Maybe a -> HPackT e s m a
+tryMaybe e (Just x) = return x
+tryMaybe e Nothing  = throw e
+
 tryIO :: M.MonadIO m => (IOError -> e) -> IO a -> HPackT e s m a
 tryIO f m = do
     eitherVal <- liftIO $ catchIOError (M.liftM Right m) (return . Left . f)
-    liftEither eitherVal
+    tryEither eitherVal
 
 finally :: Monad m
         => HPackT e s m a
