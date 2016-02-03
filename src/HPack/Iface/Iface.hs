@@ -5,11 +5,13 @@ module HPack.Iface.Iface
 ( PkgInterface(..)
 , ModInterface(..)
 , Symbol(..)
+, RequiredSymbol(..)
 , DataCon(..)
 , TypeVar(..)
 , Kind(..)
 , Origin(..)
 , Type(..)
+, Visibility(..)
 , Name(..)
 , match
 ) where
@@ -25,7 +27,6 @@ import HPack.Monads
 import HPack.JSON
 
 type Name = String
-type Type = String
 
 data PkgInterface
     = PkgInterface
@@ -38,21 +39,23 @@ data PkgInterface
 data ModInterface
     = ModInterface
         { provides :: [Symbol]
-        , requires :: [Symbol]
+        , requires :: [RequiredSymbol]
         }
         deriving (Eq, Ord, Show, Generic)
+
+data RequiredSymbol
+    = RequiredSymbol Origin Symbol
+    deriving (Eq, Ord, Show, Generic)
 
 data Symbol
     = DataType
         { name      :: Name
-        , origin    :: Origin
         , typevars  :: [TypeVar]
         , datacons  :: [DataCon]
         }
         -- ^ abstract, newtype or data type definition.
     | TypeSynonym
         { name      :: Name
-        , origin    :: Origin
         , kind      :: Kind
         , typevars  :: [TypeVar]
         , typ       :: Type
@@ -60,31 +63,52 @@ data Symbol
         -- ^ synonym of some other symbol
     | Fun
         { name      :: Name
-        , origin    :: Origin
         , typ       :: Type
         }
         -- ^ symbol binding (function or constant)
     | ClassDef
         { name      :: Name
-        , origin    :: Origin
         , bindings  :: S.Set Symbol
         }
         -- ^ type class declaration
     | ClassInst
         { name      :: Name
-        , origin    :: Origin
         }
         -- ^ type class instance definition
     deriving (Eq, Ord, Show, Generic)
 
 data DataCon
-    = DataCon Name Type
+    = DataCon
+        { dataConName    :: Name
+        , dataConArgs    :: [Type]
+        , existentials   :: [TypeVar]
+        , typeEqualities :: [(Name, Type)]
+        , context        :: [Type]
+        }
     deriving (Eq, Ord, Show, Generic)
 
-data TypeVar = TypeVar Kind
+data Type
+    = TVarRef Name
+    | TNum Integer
+    | TStr String
+    | TApp Type Type
+    | TFun Type Type
+    | TDataFun Type Type
+    | TForAll TypeVar
+    | TTyConApp Name [(Type, Visibility)]
+    | TTuple [(Type, Visibility)]
+        -- TODO: Is TupleSort relevant for the interface?
     deriving (Eq, Ord, Show, Generic)
 
-data Kind = Star | (|->) Kind Kind
+data Visibility = Visible | Specified | Invisible
+    deriving (Eq, Ord, Show, Generic)
+
+data TypeVar = TypeVar Name Kind
+    deriving (Eq, Ord, Show, Generic)
+
+data Kind
+    -- = Star | (|->) Kind Kind
+    = Kind Type -- IfaceKind seems to be an alias of IfaceType in GHC
     deriving (Eq, Ord, Show, Generic)
 
 data Origin = Origin
@@ -94,21 +118,47 @@ data Origin = Origin
     deriving (Eq, Ord, Show, Generic)
 
 
+-- instance Generic IfaceType
+-- instance Generic IfaceKind
+-- instance Generic IfLclName
+-- instance Generic IfaceTyLit
+-- instance Generic IfaceTvBndr
+-- instance Generic IfaceForAllBndr
+-- instance Generic IfaceTyCon
+-- instance Generic IfaceTcArgs
+-- instance Generic FastString
+-- instance Generic Name
+-- instance Generic IfExtName
+-- instance Generic IfaceCoercion
+-- instance Generic IfaceTyConInfo
+-- instance ToJSON FastString
+-- instance ToJSON IfaceTcArgs
+-- instance ToJSON IfaceType
+
+
+
 instance ToJSON PkgInterface
 instance ToJSON ModInterface
 instance ToJSON Symbol
+instance ToJSON RequiredSymbol
 instance ToJSON DataCon
+instance ToJSON Type
 instance ToJSON TypeVar
+instance ToJSON Visibility
 instance ToJSON Kind
 instance ToJSON Origin
 
 instance FromJSON PkgInterface
 instance FromJSON ModInterface
 instance FromJSON Symbol
+instance FromJSON RequiredSymbol
 instance FromJSON DataCon
+instance FromJSON Type
 instance FromJSON TypeVar
+instance FromJSON Visibility
 instance FromJSON Kind
 instance FromJSON Origin
+
 
 type Mismatch = () -- TODO
 
