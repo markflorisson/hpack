@@ -16,12 +16,13 @@ module HPack.Iface.Iface
 , match
 ) where
 
+import qualified Data.List as L
 import qualified Data.Map as M
 import qualified Data.Set as S
 import GHC.Generics
 
 import HPack.Cabal (CabalPkg)
-import HPack.Source (Pkg, ModulePath, Version)
+import HPack.Source (Pkg(..), ModulePath, Version)
 import HPack.System.PkgDB (PkgDB, PkgId)
 import HPack.Monads
 import HPack.JSON
@@ -44,8 +45,11 @@ data ModInterface
         deriving (Eq, Ord, Show, Generic)
 
 data RequiredSymbol
-    = RequiredSymbol Origin Symbol
-    deriving (Eq, Ord, Show, Generic)
+    = RequiredSymbol
+        { symbolOrigin :: Origin
+        , getSym       :: Symbol
+        }
+        deriving (Eq, Ord, Show, Generic)
 
 data Symbol
     = DataType
@@ -117,26 +121,6 @@ data Origin = Origin
     }
     deriving (Eq, Ord, Show, Generic)
 
-
--- instance Generic IfaceType
--- instance Generic IfaceKind
--- instance Generic IfLclName
--- instance Generic IfaceTyLit
--- instance Generic IfaceTvBndr
--- instance Generic IfaceForAllBndr
--- instance Generic IfaceTyCon
--- instance Generic IfaceTcArgs
--- instance Generic FastString
--- instance Generic Name
--- instance Generic IfExtName
--- instance Generic IfaceCoercion
--- instance Generic IfaceTyConInfo
--- instance ToJSON FastString
--- instance ToJSON IfaceTcArgs
--- instance ToJSON IfaceType
-
-
-
 instance ToJSON PkgInterface
 instance ToJSON ModInterface
 instance ToJSON Symbol
@@ -160,12 +144,74 @@ instance FromJSON Kind
 instance FromJSON Origin
 
 
-type Mismatch = () -- TODO
+data Mismatch
+    = NoSuchModule PkgInterface ModulePath
+    | NoSuchSymbol PkgInterface ModulePath Name
+    | SymbolTypeMismatch PkgInterface ModulePath Symbol Symbol
+    deriving (Eq, Show)
 
 -- | Check whether the requirements of the first package interface
 -- are provided by the second package interface
 match :: PkgInterface -> PkgInterface -> Either Mismatch ()
-match iface1 iface2 = undefined
+match dependent dependee
+    | requiredSymbols       <- requirementsBySourceModule dependent
+    , symbolToSourceModule  <- M.fromList requiredSymbols
+    , requirementsByDestPkg <- M.fromList $ sortByPackage $ map fst requiredSymbols
+    , Just required         <- M.lookup (getPkgFromIface dependee) requirementsByDestPkg
+        = mapM_ (getDefinition dependee) required
 
-(<:) :: Type -> Type -> Bool
-t1 <: t2 = undefined
+-- | Lookup the a required symbol in a package that is supposed to define it
+-- If the package does not define an appropriate symbol with a subtype of the
+-- required type, raise an exception. Otherwise, return the provided symbol.
+getDefinition :: PkgInterface -> RequiredSymbol -> Either Mismatch Symbol
+getDefinition pkgIface@PkgInterface{..} requiredSym
+    | Just modIface <- M.lookup modName modules
+        = lookupSymbol modIface
+    | otherwise
+        = Left (NoSuchModule pkgIface modName)
+    where
+        modName :: ModulePath
+        modName = getMod requiredSym
+
+        name :: Name
+        name = symName (getSym requiredSym)
+
+        lookupSymbol :: ModInterface -> Either Mismatch Symbol
+        lookupSymbol ModInterface{..}
+            | [sym] <- [ sym | sym <- provides, symName sym == name ]
+                = if sym <: getSym requiredSym
+                    then Right sym
+                    else Left $
+                        SymbolTypeMismatch pkgIface modName sym (getSym requiredSym)
+            | otherwise
+                = Left (NoSuchSymbol pkgIface modName name)
+
+requirementsBySourceModule :: PkgInterface -> [(RequiredSymbol, ModulePath)]
+requirementsBySourceModule pkgInterface
+    = [ (requiredSymbol, modName)
+            | (modName, modIface) <- M.assocs (modules pkgInterface)
+            , requiredSymbol <- requires modIface ]
+
+sortByPackage :: [RequiredSymbol] -> [(Pkg, [RequiredSymbol])]
+sortByPackage requiredSymbols
+    | sorted  <- L.sortBy byPkg requiredSymbols
+    , grouped <- L.groupBy byPkg' sorted
+        = [ (getPkg (head group), group) | group <- grouped ]
+    where
+        byPkg sym1 sym2  = compare (getPkg sym1) (getPkg sym2)
+        byPkg' sym1 sym2 = getPkg sym1 == getPkg sym2
+
+getPkgFromIface :: PkgInterface -> Pkg
+getPkgFromIface PkgInterface{..} = Pkg pkgName pkgVersion
+
+getPkg :: RequiredSymbol -> Pkg
+getPkg = exportingPkg . symbolOrigin
+
+getMod :: RequiredSymbol -> ModulePath
+getMod = exportingMod . symbolOrigin
+
+-- | Check whether the first symbol is a subtype of the second
+--
+-- TODO: an actual definition of subtyping
+(<:) :: Symbol -> Symbol -> Bool
+sym1 <: sym2 = sym1 == sym2
