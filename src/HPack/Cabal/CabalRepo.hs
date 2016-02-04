@@ -41,6 +41,11 @@ openCabalRepo path = do
         throwE $ CabalRepoNotFound path
     return $ CabalRepo path
 
+-- | Load a CabalPkg from the CabalRepo for the given Pkg
+--
+-- TODO: Cache parsed entries, as we parse first when constructing
+--       the dependency graph, and re-parse to get the exposed
+--       modules during the interface inference process
 loadCabalFromPkg :: MonadIO m => CabalRepo -> Config -> Pkg
                  -> CabalRepoM m CabalPkg
 loadCabalFromPkg repo config pkg = do

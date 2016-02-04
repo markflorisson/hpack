@@ -54,19 +54,20 @@ data ExtractErr
     | ModuleLookupError Pkg ModulePath
     | SymbolLookupError Name [Symbol]
 
-type ExtractM = HPackT ExtractErr () (IfaceRepoM IfaceM)
+type ExtractM m = HPackT ExtractErr () (IfaceRepoM m)
 
-runExtractM :: ExtractM a -> IO (Either ExtractErr a)
-runExtractM = undefined
+runExtractM :: Monad m => ExtractM m a -> IfaceRepoM m (Either ExtractErr a)
+runExtractM m = runHPackT m ()
 
-liftIfaceRepo :: IfaceRepoM IfaceM a -> ExtractM a
+liftIfaceRepo :: Monad m => IfaceRepoM m a -> ExtractM m a
 liftIfaceRepo = lift
 
-liftIface :: IfaceM a -> ExtractM a
-liftIface = lift . lift
+liftIface :: MonadIO m => IfaceM a -> ExtractM m a
+liftIface = liftIO . runIfaceM
 
 -- | Extract a package interface from
-extract :: PkgDB -> PkgId -> CabalPkg -> ExtractM PkgInterface
+extract :: MonadIO m => PkgDB -> PkgId -> CabalPkg
+        -> ExtractM m PkgInterface
 extract pkgDB pkgId cabalPkg = do
     let modNames = exposedMods cabalPkg
     let Just (Pkg name version) = lookupPkg pkgDB pkgId
@@ -74,7 +75,8 @@ extract pkgDB pkgId cabalPkg = do
     return $ PkgInterface name version (M.fromList (zip modNames modIfaces))
 
 -- | Get an interface for the given module
-getModuleInterface :: PkgDB -> PkgId -> ModulePath -> ExtractM ModInterface
+getModuleInterface :: MonadIO m => PkgDB -> PkgId -> ModulePath
+                   -> ExtractM m ModInterface
 getModuleInterface pkgDB pkgId modName = do
     let buildDir = getBuildDir pkgDB pkgId
     let dirWithCompiledFiles = buildDir </> "dist" </> "build"
@@ -111,14 +113,14 @@ providedSymbols ModIface{..} =
             = symbol
 
 -- | Determine the requirements the package has of its dependencies
-requiredSymbols :: PkgDB -> PkgId -> ModulePath -> ModIface
-                -> ExtractM [RequiredSymbol]
+requiredSymbols :: MonadIO m => PkgDB -> PkgId -> ModulePath -> ModIface
+                -> ExtractM m [RequiredSymbol]
 requiredSymbols pkgDB pkgId modulePath modIface = do
         ModuleRequirements requiredSymbolNames <- parseSymbolFile
         mapM resolveSymbol requiredSymbolNames
     where
         -- | Parse the external symbols file for the module
-        parseSymbolFile :: ExtractM ModuleRequirements
+        parseSymbolFile :: MonadIO m => ExtractM m ModuleRequirements
         parseSymbolFile = do
             let buildDir    = getBuildDir pkgDB pkgId
             let modFileName = buildDir </> "ExternalSymbols"
@@ -129,7 +131,7 @@ requiredSymbols pkgDB pkgId modulePath modIface = do
 
         -- | Lookup the required symbol name in the interface of the exporting
         -- package
-        resolveSymbol :: RequiredSymbolName -> ExtractM RequiredSymbol
+        resolveSymbol :: MonadIO m => RequiredSymbolName -> ExtractM m RequiredSymbol
         resolveSymbol (RequiredSymbolName pkgOrigin modName requiredSymName)
             | BuiltinPkg pkgName <- pkgOrigin
                 = undefined
@@ -146,7 +148,7 @@ requiredSymbols pkgDB pkgId modulePath modIface = do
                     symbols  -> throw (SymbolLookupError requiredSymName symbols)
 
         -- | Look up the interface for the given package
-        lookupPkgIface :: Pkg -> ExtractM PkgInterface
+        lookupPkgIface :: MonadIO m => Pkg -> ExtractM m PkgInterface
         lookupPkgIface pkg
             = tryMaybe (IfaceLookupError pkg) =<<
                 liftIfaceRepo (getPkgIface pkg)

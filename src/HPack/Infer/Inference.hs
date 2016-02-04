@@ -12,7 +12,8 @@ import Control.Monad (forM_)
 
 import HPack.Config (Config(..), CompilerVersion)
 import HPack.Source (Pkg(..), ModulePath, SourceRepo)
-import HPack.Cabal (CabalRepo, CabalRepoM, CabalPkg, CabalError, loadCabalFromPkg, runCabalRepoM)
+import HPack.Cabal ( CabalRepo, CabalRepoM, CabalPkg(..), CabalError
+                   , loadCabalFromPkg, runCabalRepoM)
 import HPack.System (PkgDB, PkgId)
 import HPack.Solver (SolverFlags(..), DepGraph, Disj(..), loadGraph, lookupPkg)
 import HPack.Iface
@@ -213,16 +214,8 @@ build config depGraph pkg buildConfiguration = do
                         -> InferM m (Maybe PkgInterface)
         extractPkgIface pkgId = do
             State{..} <- get
-            eitherPkgIface <- liftIO $ runExtractM $ extract pkgDB pkgId
+            cabalPkg <- liftCabalRepoM $ loadCabalFromPkg cabalRepo config pkg
+            eitherPkgIface <- lift $ runExtractM $ extract pkgDB pkgId cabalPkg
             case eitherPkgIface of
                 Left err       -> return Nothing
                 Right pkgIface -> return (Just pkgIface)
-
-
-
-
-
-
-
-
-foo = undefined
