@@ -60,6 +60,7 @@ library
                        HPack.Iface.IfaceExtract
                        HPack.Iface.IfaceRepo
                        HPack.Iface.LoadIface
+                       HPack.Iface.ExternalSymbols
                        HPack.Infer.Inference
                        -- HPack.Infer.Parser
                        -- HPack.Infer.Preprocess

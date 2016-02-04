@@ -1,6 +1,6 @@
 module HPack.JSON
 (JSON(..), Value(..), ToJSON(..), FromJSON(..), T.Text
-, encode, decode, typeMismatch, textToString
+, encode, decode, typeMismatch, textToString, stringToText
 , array, tuple
 ) where
 
@@ -16,6 +16,9 @@ type JSON = Value
 
 textToString :: T.Text -> String
 textToString = T.unpack
+
+stringToText :: String -> T.Text
+stringToText = T.pack
 
 instance (ToJSON a, ToJSON b) => ToJSON (M.Map a b) where
     toJSON = array . map toJSON . M.assocs

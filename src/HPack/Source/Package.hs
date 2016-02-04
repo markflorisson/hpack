@@ -4,6 +4,7 @@ module HPack.Source.Package
 ( Pkg(..)
 , V.Version(..)
 , ModulePath(..)
+, mkModulePath
 , showVersion
 , parseVersion
 ) where
@@ -12,6 +13,7 @@ import Data.List (intercalate)
 import Text.ParserCombinators.ReadP (readP_to_S)
 import qualified Data.Version as V
 import qualified Data.Text as T
+import Data.String.Utils (split)
 
 import GHC.Generics
 
@@ -24,6 +26,9 @@ data Pkg = Pkg { pkgName :: String, pkgVersion :: V.Version }
 -- | Path to a module within some package
 data ModulePath = ModulePath [String]
     deriving (Eq, Ord, Generic)
+
+mkModulePath :: String -> ModulePath
+mkModulePath = ModulePath . split "."
 
 ---------------------------------------------------------
 
