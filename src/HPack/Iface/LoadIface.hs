@@ -1,7 +1,7 @@
 {- | Use GHC to load a ModIface from a .hi file -}
 module HPack.Iface.LoadIface
 ( IfaceM
-, Err(..)
+, IfaceErr(..)
 , ModName(..)
 , ModIface
 , runIfaceM
@@ -38,17 +38,17 @@ import HPack.Source (Pkg(..))
 
 type ModName = String
 
-data Err
+data IfaceErr
     = CompileErr ModName
     | IfaceErr ModName
 
-type IfaceM = ExceptT Err Ghc
+type IfaceM = ExceptT IfaceErr Ghc
 
 liftGhc :: Ghc a -> IfaceM a
 liftGhc = lift
 
 -- | Run the IfaceM monad
-runIfaceM :: IfaceM a -> IO (Either Err a)
+runIfaceM :: IfaceM a -> IO (Either IfaceErr a)
 runIfaceM = defaultErrorHandler defaultFatalMessager defaultFlushOut
           . runGhc (Just libdir)
           . runExceptT
@@ -95,6 +95,6 @@ haskellInterfacePath modName =
 showModIface :: ModIface -> IfaceM String
 showModIface modIface = liftGhc $ ghcShowSDoc $ pprModIface modIface
 
-instance Show Err where
+instance Show IfaceErr where
     show (CompileErr m) = "Failed to compile " ++ show m ++ "."
     show (IfaceErr m)   = "Failed to load interface for " ++ show m ++ "."

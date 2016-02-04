@@ -3,6 +3,8 @@ module HPack.Monads
 ( HPackT, runHPackT
 , HPackM, runHPackM
 , M.MonadIO
+, M.ExceptT, M.runExceptT
+, M.StateT, M.runStateT
 , lift, liftIO, M.liftM, M.liftM2, M.liftM3
 , M.mapM, M.mapM_, M.forM, M.forM_, M.when, M.void
 , mapLeft, try, throw, catch, finally, tryEither, tryMaybe, tryIO

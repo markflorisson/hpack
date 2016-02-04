@@ -49,30 +49,30 @@ data RequiredSymbol
 
 data Symbol
     = DataType
-        { name      :: Name
+        { symName   :: Name
         , typevars  :: [TypeVar]
         , datacons  :: [DataCon]
         }
         -- ^ abstract, newtype or data type definition.
     | TypeSynonym
-        { name      :: Name
+        { symName   :: Name
         , kind      :: Kind
         , typevars  :: [TypeVar]
         , typ       :: Type
         }
         -- ^ synonym of some other symbol
     | Fun
-        { name      :: Name
+        { symName   :: Name
         , typ       :: Type
         }
         -- ^ symbol binding (function or constant)
     | ClassDef
-        { name      :: Name
+        { symName   :: Name
         , bindings  :: S.Set Symbol
         }
         -- ^ type class declaration
     | ClassInst
-        { name      :: Name
+        { symName   :: Name
         }
         -- ^ type class instance definition
     deriving (Eq, Ord, Show, Generic)

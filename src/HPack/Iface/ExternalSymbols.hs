@@ -36,7 +36,7 @@ modified GHC. Here is an example:
 -}
 
 module HPack.Iface.ExternalSymbols
-( RequiredModule(..)
+( ModuleRequirements(..)
 , RequiredSymbolName(..)
 , PkgOrigin(..)
 , parseSymbolsForModule
@@ -54,8 +54,8 @@ import HPack.JSON
 type Name = String
 
 -- | Module containing a list of exported symbols
-data RequiredModule
-    = RequiredModule [RequiredSymbolName]
+data ModuleRequirements
+    = ModuleRequirements [RequiredSymbolName]
     deriving (Show)
 
 data RequiredSymbolName
@@ -67,12 +67,12 @@ data PkgOrigin
     | ExternalPkg Pkg
     deriving (Show)
 
-instance FromJSON RequiredModule where
+instance FromJSON ModuleRequirements where
     parseJSON (Object mod) = do
         symbols <- mod .: "exportedNames"
-        RequiredModule <$> mapM parseJSON symbols
+        ModuleRequirements <$> mapM parseJSON symbols
     parseJSON val
-        = typeMismatch "Expected an RequiredModule (a JSON Object)" val
+        = typeMismatch "Expected an ModuleRequirements (a JSON Object)" val
 
 instance FromJSON RequiredSymbolName where
     parseJSON (Object sym) = do
@@ -100,5 +100,5 @@ parsePkgOrigin json@(String txt) = do
 parsePkg json =
     typeMismatch "Expected a package string name" json
 
-parseSymbolsForModule :: BS.ByteString -> Either String RequiredModule
+parseSymbolsForModule :: BS.ByteString -> Either String ModuleRequirements
 parseSymbolsForModule = eitherDecode

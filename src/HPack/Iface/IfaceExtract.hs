@@ -28,25 +28,42 @@ import FastString (FastString, unpackFS)
 import qualified Name as GHC
 
 import Data.Maybe (mapMaybe, catMaybes)
-import Data.String.Utils (split)
+import System.FilePath ((</>))
 import qualified Data.Map as M
 import qualified Data.Set as S
-import System.FilePath ((</>))
+import qualified Data.ByteString.Lazy      as BS
+import qualified Control.Monad.Trans.Class as Monad
+import qualified Control.Monad.IO.Class    as Monad
 
 import HPack.Iface.Iface
 import HPack.Iface.IfaceRepo
 import HPack.Iface.LoadIface
+import HPack.Iface.ExternalSymbols
+    ( ModuleRequirements(..), RequiredSymbolName(..)
+    , PkgOrigin(..), parseSymbolsForModule)
 import HPack.Cabal (CabalPkg(..))
-import HPack.Source (Pkg(..), ModulePath(..))
+import HPack.Source (Pkg(..), ModulePath(..), mkModulePath)
 import HPack.System (PkgDB, PkgId, getBuildDir, lookupPkg)
 import HPack.Ghc (SDoc, ghcShow, ghcShowSDoc)
 import HPack.Monads
 import HPack.JSON
 
-type ExtractM = IfaceRepoM IfaceM
+data ExtractErr
+    = ParseError { fileName :: FilePath, parseError :: String }
+    | IfaceLookupError Pkg
+    | ModuleLookupError Pkg ModulePath
+    | SymbolLookupError Name [Symbol]
 
-runExtractM :: ExtractM a -> IO (Either Err a)
+type ExtractM = HPackT ExtractErr () (IfaceRepoM IfaceM)
+
+runExtractM :: ExtractM a -> IO (Either ExtractErr a)
 runExtractM = undefined
+
+liftIfaceRepo :: IfaceRepoM IfaceM a -> ExtractM a
+liftIfaceRepo = lift
+
+liftIface :: IfaceM a -> ExtractM a
+liftIface = lift . lift
 
 -- | Extract a package interface from
 extract :: PkgDB -> PkgId -> CabalPkg -> ExtractM PkgInterface
@@ -61,16 +78,10 @@ getModuleInterface :: PkgDB -> PkgId -> ModulePath -> ExtractM ModInterface
 getModuleInterface pkgDB pkgId modName = do
     let buildDir = getBuildDir pkgDB pkgId
     let dirWithCompiledFiles = buildDir </> "dist" </> "build"
-    modIface <- lift $ compileAndLoadIface dirWithCompiledFiles (show modName)
-    liftIO $ extractIface pkgDB pkgId modIface
-
-modulePath :: String -> ModulePath
-modulePath = ModulePath . split "."
-
-extractIface :: PkgDB -> PkgId -> ModIface -> IO ModInterface
-extractIface pkgDB pkgId modIface = do
+    modIface <- liftIface $
+        compileAndLoadIface dirWithCompiledFiles (show modName)
     let provided = providedSymbols modIface
-    required <- requiredSymbols pkgDB pkgId modIface
+    required <- requiredSymbols pkgDB pkgId modName modIface
     return (ModInterface provided required)
 
 -- | Get all the exported symbols from the ModIface
@@ -101,11 +112,45 @@ providedSymbols ModIface{..} =
 
 -- | Determine the requirements the package has of its dependencies
 requiredSymbols :: PkgDB -> PkgId -> ModulePath -> ModIface
-                -> IO [RequiredSymbol]
+                -> ExtractM [RequiredSymbol]
 requiredSymbols pkgDB pkgId modulePath modIface = do
-    let buildDir   = getBuildDir pkgDB pkgId
-    let symbolsDir = buildDir </> "ExternalSymbols"
-    error "implement requiredSymbols" -- TODO
+        ModuleRequirements requiredSymbolNames <- parseSymbolFile
+        mapM resolveSymbol requiredSymbolNames
+    where
+        -- | Parse the external symbols file for the module
+        parseSymbolFile :: ExtractM ModuleRequirements
+        parseSymbolFile = do
+            let buildDir    = getBuildDir pkgDB pkgId
+            let modFileName = buildDir </> "ExternalSymbols"
+                                       </> show modulePath ++ ".json"
+            contents <- liftIO $ BS.readFile modFileName
+            tryEither $ mapLeft (ParseError modFileName) $
+                parseSymbolsForModule contents
+
+        -- | Lookup the required symbol name in the interface of the exporting
+        -- package
+        resolveSymbol :: RequiredSymbolName -> ExtractM RequiredSymbol
+        resolveSymbol (RequiredSymbolName pkgOrigin modName requiredSymName)
+            | BuiltinPkg pkgName <- pkgOrigin
+                = undefined
+            | ExternalPkg pkg <- pkgOrigin = do
+                PkgInterface{..} <- lookupPkgIface pkg
+                ModInterface{provides = ps} <-
+                    tryMaybe (ModuleLookupError pkg modName)
+                             (M.lookup modName modules)
+                let matchName symbol = symName symbol == requiredSymName
+                let matches = filter matchName ps
+                let origin  = Origin pkg modName
+                case matches of
+                    [symbol] -> return (RequiredSymbol origin symbol)
+                    symbols  -> throw (SymbolLookupError requiredSymName symbols)
+
+        -- | Look up the interface for the given package
+        lookupPkgIface :: Pkg -> ExtractM PkgInterface
+        lookupPkgIface pkg
+            = tryMaybe (IfaceLookupError pkg) =<<
+                liftIfaceRepo (getPkgIface pkg)
+
 
 extractDecl :: IfaceDecl -> Maybe Symbol
 extractDecl IfaceId{..}
