@@ -1,11 +1,106 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 
+{- |
+
+This module provides the interface data type. Suppose we have a package
+P of version 1 which provides the following module:
+
+    ------------- Definition of package P-v1 -------------
+    module P.Foo where
+    import Data.ByteString (empty, append)
+    foo s =
+        if s /= empty
+          then append s s
+          else empty
+    ------------- Definition of package P-v1 -------------
+
+In this definition we use the 'empty' and 'append' functions from
+the Data.ByteString module from the ByteString package. We further
+use the (in)equality function from the Eq type class. The interface
+for a package definition such as above would look as follows:
+
+    ------------- Interface for package P-v1 -------------
+    pkg P-v1 where
+        provides module P.Foo where
+            foo :: [L1]Data.ByteString.ByteString
+                -> [L1]Data.ByteString.ByteString
+
+        requires pkg ByteString as L1:
+            module Data.ByteString:
+                data ByteString :: *
+
+                instance Prelude.Eq [L1]Data.ByteString.ByteString
+
+                empty  :: [L1]Data.ByteString.ByteString
+                append :: [L1]Data.ByteString.ByteString
+                       -> [L1]Data.ByteString.ByteString
+                       -> [L1]Data.ByteString.ByteString
+
+        requires pkg base as L2:
+            module Prelude:
+                class Eq a where
+                    (==) :: a -> a -> Bool
+                    (/=) :: a -> a -> Bool
+                    ...
+    ------------- Interface for package P-v1 -------------
+
+Here we have labelled the abstract data type ByteString by its package
+label. This is used to that we can represent disjoint requirements,
+so that we can duplicate packages. For example, we may have an interface
+as follows:
+
+    ------------- Interface for package Q-v1 -------------
+    pkg Q-v1 where
+        provides module Q.QMod where
+            f1 :: [L1]Data.ByteString.ByteString -> Int
+            f2 :: [L2]Data.ByteString.Lazy.ByteString -> Int
+
+        requires pkg ByteString as L1:
+            module Data.ByteString:
+                data ByteString :: *
+                ...
+
+        required pkg ByteString as L2:
+            module Data.ByteString.Lazy:
+                data ByteString :: *
+                ...
+
+    ------------- Interface for package Q-v1 -------------
+
+Note that when we require some symbol from a dependee with a given signature,
+we also require the package and module that defines any of the abstract
+data types mentioned in the signature. For example, a package R-v1
+may depend on Q.f1:
+
+    ------------- Definition of package R-v1 -------------
+    module R.RMod where
+    import Q.QMod (f1)
+    g = f1
+    ------------- Definition of package R-v1 -------------
+
+    ------------- Interface for package R-v1 -------------
+    pkg R-v1 where
+        provides module R.RMod where
+            g :: [L5]Data.ByteString.ByteString -> Int
+
+        requires pkg ByteString (L5):
+            module Data.ByteString:
+                data ByteString :: *
+    ------------- Interface for package R-v1 -------------
+
+Of course the labels are not globally unique, they are only unique within
+the package interface definition.
+
+This approach exposes sharing constraints locally available by merging package
+requirements under a single label whenever we have a non-empty intersection
+of exposed abstract data types.
+-}
+
 module HPack.Iface.Iface
 ( PkgInterface(..)
 , ModInterface(..)
 , Symbol(..)
-, RequiredSymbol(..)
 , DataCon(..)
 , TypeVar(..)
 , Kind(..)
@@ -27,39 +122,41 @@ import HPack.System.PkgDB (PkgDB, PkgId)
 import HPack.Monads
 import HPack.JSON
 
-type Name = String
+type PkgLabel     = Int
+type PkgName      = String
+type Name         = String
+type ModuleName   = ModulePath
+
+type Dependencies = M.Map PkgLabel Modules
+type Modules      = M.Map ModuleName ModInterface
 
 data PkgInterface
     = PkgInterface
-        { pkgName :: String
-        , pkgVersion :: Version
-        , modules :: M.Map ModulePath ModInterface
+        { pkgName               :: PkgName
+        , providedModules       :: Modules
+        , dependencyLabeling    :: M.Map PkgLabel PkgName
+        , dependencies          :: Dependencies
         }
         deriving (Eq, Ord, Show, Generic)
 
 data ModInterface
     = ModInterface
-        { provides :: [Symbol]
-        , requires :: [RequiredSymbol]
-        }
-        deriving (Eq, Ord, Show, Generic)
-
-data RequiredSymbol
-    = RequiredSymbol
-        { symbolOrigin :: Origin
-        , getSym       :: Symbol
+        { moduleName    :: ModuleName
+        , moduleExports :: [Symbol]
         }
         deriving (Eq, Ord, Show, Generic)
 
 data Symbol
     = DataType
         { symName   :: Name
+        , symOrigin :: Origin
         , typevars  :: [TypeVar]
         , datacons  :: [DataCon]
         }
         -- ^ abstract, newtype or data type definition.
     | TypeSynonym
         { symName   :: Name
+        , symOrigin :: Origin
         , kind      :: Kind
         , typevars  :: [TypeVar]
         , typ       :: Type
@@ -67,16 +164,19 @@ data Symbol
         -- ^ synonym of some other symbol
     | Fun
         { symName   :: Name
+        , symOrigin :: Origin
         , typ       :: Type
         }
         -- ^ symbol binding (function or constant)
     | ClassDef
         { symName   :: Name
+        , symOrigin :: Origin
         , bindings  :: S.Set Symbol
         }
         -- ^ type class declaration
     | ClassInst
         { symName   :: Name
+        , symOrigin :: Origin
         }
         -- ^ type class instance definition
     deriving (Eq, Ord, Show, Generic)
@@ -116,15 +216,17 @@ data Kind
     deriving (Eq, Ord, Show, Generic)
 
 data Origin = Origin
-    { exportingPkg :: Pkg           -- ^ the package that exports the symbol
-    , exportingMod :: ModulePath    -- ^ path to exporting module
+    { originPkg :: PkgName
+        -- ^ the package that exports the symbol
+    , originMod :: ModuleName
+        -- ^ path to exporting module
     }
     deriving (Eq, Ord, Show, Generic)
 
 instance ToJSON PkgInterface
 instance ToJSON ModInterface
 instance ToJSON Symbol
-instance ToJSON RequiredSymbol
+-- instance ToJSON RequiredSymbol
 instance ToJSON DataCon
 instance ToJSON Type
 instance ToJSON TypeVar
@@ -135,7 +237,7 @@ instance ToJSON Origin
 instance FromJSON PkgInterface
 instance FromJSON ModInterface
 instance FromJSON Symbol
-instance FromJSON RequiredSymbol
+-- instance FromJSON RequiredSymbol
 instance FromJSON DataCon
 instance FromJSON Type
 instance FromJSON TypeVar
@@ -152,63 +254,36 @@ data Mismatch
 
 -- | Check whether the requirements of the first package interface
 -- are provided by the second package interface
-match :: PkgInterface -> PkgInterface -> Either Mismatch ()
-match dependent dependee
-    | requiredSymbols       <- requirementsBySourceModule dependent
-    , symbolToSourceModule  <- M.fromList requiredSymbols
-    , requirementsByDestPkg <- M.fromList $ sortByPackage $ map fst requiredSymbols
-    , Just required         <- M.lookup (getPkgFromIface dependee) requirementsByDestPkg
-        = mapM_ (getDefinition dependee) required
-
--- | Lookup the a required symbol in a package that is supposed to define it
--- If the package does not define an appropriate symbol with a subtype of the
--- required type, raise an exception. Otherwise, return the provided symbol.
-getDefinition :: PkgInterface -> RequiredSymbol -> Either Mismatch Symbol
-getDefinition pkgIface@PkgInterface{..} requiredSym
-    | Just modIface <- M.lookup modName modules
-        = lookupSymbol modIface
-    | otherwise
-        = Left (NoSuchModule pkgIface modName)
+match :: PkgInterface -> PkgInterface -> PkgLabel -> Either Mismatch ()
+match dependent dependee dependeeLabel
+    | Just requiredModules <- M.lookup dependeeLabel (dependencies dependent)
+    , providedModules <- providedModules dependee
+        = matchModules requiredModules providedModules
     where
-        modName :: ModulePath
-        modName = getMod requiredSym
+        matchModules :: Modules -> Modules -> Either Mismatch ()
+        matchModules requiredModules providedModules =
+            forM_ (M.assocs requiredModules) $ \(modName, requiredModIface) ->
+                case M.lookup modName providedModules of
+                    Just providedModIface ->
+                        matchModuleIface requiredModIface providedModIface
+                    Nothing ->
+                        Left $ NoSuchModule dependee modName
 
-        name :: Name
-        name = symName (getSym requiredSym)
+        matchModuleIface :: ModInterface -> ModInterface -> Either Mismatch ()
+        matchModuleIface requiredModIface providedModIface
+            = mapM_ (matchSymbol providedModIface) (moduleExports requiredModIface)
 
-        lookupSymbol :: ModInterface -> Either Mismatch Symbol
-        lookupSymbol ModInterface{..}
-            | [sym] <- [ sym | sym <- provides, symName sym == name ]
-                = if sym <: getSym requiredSym
-                    then Right sym
-                    else Left $
-                        SymbolTypeMismatch pkgIface modName sym (getSym requiredSym)
+        matchSymbol :: ModInterface -> Symbol -> Either Mismatch ()
+        matchSymbol ModInterface{..} requiredSym
+            | [providedSym] <-
+                [ providedSym | providedSym <- moduleExports
+                              , symName providedSym == symName requiredSym ]
+                = if providedSym <: requiredSym
+                    then Right ()
+                    else Left (SymbolTypeMismatch dependee moduleName
+                                                  providedSym requiredSym)
             | otherwise
-                = Left (NoSuchSymbol pkgIface modName name)
-
-requirementsBySourceModule :: PkgInterface -> [(RequiredSymbol, ModulePath)]
-requirementsBySourceModule pkgInterface
-    = [ (requiredSymbol, modName)
-            | (modName, modIface) <- M.assocs (modules pkgInterface)
-            , requiredSymbol <- requires modIface ]
-
-sortByPackage :: [RequiredSymbol] -> [(Pkg, [RequiredSymbol])]
-sortByPackage requiredSymbols
-    | sorted  <- L.sortBy byPkg requiredSymbols
-    , grouped <- L.groupBy byPkg' sorted
-        = [ (getPkg (head group), group) | group <- grouped ]
-    where
-        byPkg sym1 sym2  = compare (getPkg sym1) (getPkg sym2)
-        byPkg' sym1 sym2 = getPkg sym1 == getPkg sym2
-
-getPkgFromIface :: PkgInterface -> Pkg
-getPkgFromIface PkgInterface{..} = Pkg pkgName pkgVersion
-
-getPkg :: RequiredSymbol -> Pkg
-getPkg = exportingPkg . symbolOrigin
-
-getMod :: RequiredSymbol -> ModulePath
-getMod = exportingMod . symbolOrigin
+                = Left $ NoSuchSymbol dependee moduleName (symName requiredSym)
 
 -- | Check whether the first symbol is a subtype of the second
 --
