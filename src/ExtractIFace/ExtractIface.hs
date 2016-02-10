@@ -6,7 +6,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Class (lift)
 
 import HPack.Iface
-    (ModName(..), runIfaceM, compileAndLoadIface, showModIface, liftGhc, extract)
+    (ModName(..), runIfaceM, compileAndLoadIface, showModIface, extract)
 
 main :: IO ()
 main = do
@@ -17,13 +17,11 @@ main = do
 
 loadIface :: String -> IO ()
 loadIface modName = do
-    eitherModIface <- runIfaceM $ do
+    msg <- runIfaceM $ do
         modIface <- compileAndLoadIface "." modName
         -- iface <- lift $ extract modIface
         showModIface modIface
-    case eitherModIface of
-        Left e         -> failure (show e)
-        Right ifaceStr -> success ifaceStr
+    putStrLn msg
 
 exit exitCode s = putStrLn s >> exitWith exitCode
 success = exit ExitSuccess

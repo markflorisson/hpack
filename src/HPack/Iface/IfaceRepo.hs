@@ -14,7 +14,7 @@ import HPack.Monads
 import HPack.System (PkgId(..))
 import HPack.Source (Pkg(..), ModulePath(..), showVersion)
 import HPack.Iface.Iface
-    (PkgInterface(..), ModInterface(..), Symbol(..), Origin(..))
+    (PkgInterface(..), ModInterface(..), Symbol(..))
 import HPack.JSON
 
 type IfaceRepoM m = HPackT IfaceRepoError IfaceRepo m

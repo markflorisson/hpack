@@ -1,6 +1,11 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE CPP #-}
 
+{- |
+
+Extract interfaces for compiled packages.
+-}
+
 module HPack.Iface.IfaceExtract
 ( ExtractM, runExtractM, extract )
 where
@@ -31,6 +36,7 @@ import Data.Maybe (mapMaybe, catMaybes)
 import System.FilePath ((</>))
 import qualified Data.Map as M
 import qualified Data.Set as S
+import qualified Data.List as L
 import qualified Data.ByteString.Lazy      as BS
 import qualified Control.Monad.Trans.Class as Monad
 import qualified Control.Monad.IO.Class    as Monad
@@ -71,20 +77,55 @@ extract :: MonadIO m => PkgDB -> PkgId -> CabalPkg
 extract pkgDB pkgId cabalPkg = do
     let modNames = exposedMods cabalPkg
     let Just (Pkg name version) = lookupPkg pkgDB pkgId
-    modIfaces <- mapM (getModuleInterface pkgDB pkgId) modNames
-    return $ PkgInterface name version (M.fromList (zip modNames modIfaces))
+
+    symbols <- mapM (getSymbols pkgDB pkgId) modNames
+
+    let (provided, required) = unzip symbols
+    providedModules <- return $ M.fromList
+        [ (modName, ModInterface modName exports)
+        | (modName, exports) <- zip modNames provided ]
+    let deps = groupSymbols (concat required)
+    return $ PkgInterface name version providedModules deps
 
 -- | Get an interface for the given module
-getModuleInterface :: MonadIO m => PkgDB -> PkgId -> ModulePath
-                   -> ExtractM m ModInterface
-getModuleInterface pkgDB pkgId modName = do
+getSymbols :: MonadIO m => PkgDB -> PkgId -> ModulePath
+           -> ExtractM m ([Symbol], [(PkgName, ModulePath, Symbol)])
+getSymbols pkgDB pkgId modName = do
     let buildDir = getBuildDir pkgDB pkgId
     let dirWithCompiledFiles = buildDir </> "dist" </> "build"
     modIface <- liftIface $
         compileAndLoadIface dirWithCompiledFiles (show modName)
-    let provided = providedSymbols modIface
     required <- requiredSymbols pkgDB pkgId modName modIface
-    return (ModInterface provided required)
+    return (providedSymbols modIface, required)
+
+-- | Group exported symbols by package and module
+groupSymbols :: [(PkgName, ModulePath, Symbol)] -> [(PkgName, Modules)]
+groupSymbols = undefined -- map makeModules . groupBy' (\x y z -> x)
+    where
+        first (x, y, z)  = x
+        second (x, y, z) = y
+        third (x, y, z)  = z
+
+        groupBy' :: (Ord d, Eq d) => ((a, b, c) -> d) -> [(a, b, c)] -> [[(a, b, c)]]
+        groupBy' proj = L.groupBy (\x y -> proj x == proj y)
+                      . L.sortBy (\x y -> compare (proj x) (proj y))
+
+        -- | Given a list of symbols for the *same* package name, create a
+        -- mapping from module paths to module interfaces
+        makePkg :: [(PkgName, ModulePath, Symbol)] -> (PkgName, Modules)
+        makePkg xs
+            | pkgName <- first (head xs)
+            , modules <- groupBy' second xs
+            = (pkgName, foldMap makeModules modules)
+
+        -- | Given a list of symbols for the *same* module name, create a
+        -- singleton dictionary mapping the module name to the module interface
+        -- (to be folded with mappend)
+        makeModules :: [(PkgName, ModulePath, Symbol)] -> Modules
+        makeModules xs
+            | modName <- second (head xs)
+            , symbols <- map third xs
+            = M.singleton modName (ModInterface modName symbols)
 
 -- | Get all the exported symbols from the ModIface
 providedSymbols :: ModIface -> [Symbol]
@@ -92,16 +133,23 @@ providedSymbols ModIface{..} =
     catMaybes [ extractExport decl mi_exports
                   | decl <- map snd mi_decls ]
     where
+        -- | Search for the interface declaration `ifaceDecl` in the
+        -- list of exported symbols. If present, convert the declaration
+        -- to a Symbol. If not present, return Nothing.
         extractExport :: IfaceDecl -> [AvailInfo] -> Maybe Symbol
         extractExport ifaceDecl (availInfo:availInfos)
             | Avail name <- availInfo
             , GHC.nameOccName name == ifName ifaceDecl
+                -- regular name, just extract a normal symbol name
                 = extractDecl ifaceDecl
             | AvailTC name constructors <- availInfo
             , GHC.nameOccName name == ifName ifaceDecl
+                -- type name, extract a symbol and slice away any unexported
+                -- data constructors
                 = do symbol <- extractDecl ifaceDecl
                      return $ sliceDecl symbol $ map extractName constructors
             | otherwise
+                -- keep searching
                 = extractExport ifaceDecl availInfos
         extractExport ifaceDecl []
                 = Nothing
@@ -114,10 +162,10 @@ providedSymbols ModIface{..} =
 
 -- | Determine the requirements the package has of its dependencies
 requiredSymbols :: MonadIO m => PkgDB -> PkgId -> ModulePath -> ModIface
-                -> ExtractM m [RequiredSymbol]
+                -> ExtractM m [(PkgName, ModulePath, Symbol)]
 requiredSymbols pkgDB pkgId modulePath modIface = do
         ModuleRequirements requiredSymbolNames <- parseSymbolFile
-        mapM resolveSymbol requiredSymbolNames
+        catMaybes <$> mapM resolveSymbol requiredSymbolNames
     where
         -- | Parse the external symbols file for the module
         parseSymbolFile :: MonadIO m => ExtractM m ModuleRequirements
@@ -131,20 +179,23 @@ requiredSymbols pkgDB pkgId modulePath modIface = do
 
         -- | Lookup the required symbol name in the interface of the exporting
         -- package
-        resolveSymbol :: MonadIO m => RequiredSymbolName -> ExtractM m RequiredSymbol
+        resolveSymbol :: MonadIO m
+                      => RequiredSymbolName
+                      -> ExtractM m (Maybe (PkgName, ModulePath, Symbol))
         resolveSymbol (RequiredSymbolName pkgOrigin modName requiredSymName)
             | BuiltinPkg pkgName <- pkgOrigin
-                = undefined
-            | ExternalPkg pkg <- pkgOrigin = do
-                PkgInterface{..} <- lookupPkgIface pkg
-                ModInterface{provides = ps} <-
+                -- TODO: check that this package is in our "blessed" set of
+                -- built-in packages
+                = return Nothing
+            | ExternalPkg pkg@(Pkg pkgName pkgVersion) <- pkgOrigin = do
+                PkgInterface{providedModules = modules} <- lookupPkgIface pkg
+                ModInterface{moduleExports = exports} <-
                     tryMaybe (ModuleLookupError pkg modName)
                              (M.lookup modName modules)
                 let matchName symbol = symName symbol == requiredSymName
-                let matches = filter matchName ps
-                let origin  = Origin pkg modName
+                let matches = filter matchName exports
                 case matches of
-                    [symbol] -> return (RequiredSymbol origin symbol)
+                    [symbol] -> return $ Just (pkgName, modName, symbol)
                     symbols  -> throw (SymbolLookupError requiredSymName symbols)
 
         -- | Look up the interface for the given package
@@ -153,7 +204,7 @@ requiredSymbols pkgDB pkgId modulePath modIface = do
             = tryMaybe (IfaceLookupError pkg) =<<
                 liftIfaceRepo (getPkgIface pkg)
 
-
+-- | Extract a symbol from a symbol declaration in a .hi file
 extractDecl :: IfaceDecl -> Maybe Symbol
 extractDecl IfaceId{..}
     | name     <- extractOccName ifName
@@ -218,6 +269,13 @@ extractLclName = extractStr
 
 extractExtName :: IfExtName -> Name
 extractExtName = extractName
+
+-- extractExternalOrigin :: GHC.Name -> Origin
+-- extractExternalOrigin ghcName
+--     = getMod (n_sort ghcName)
+--     where
+--         getMod (External m)    = m
+--         getMod (WiredIn m _ _) = m
 
 extractName :: GHC.Name -> Name
 extractName = extractOccName . GHC.nameOccName

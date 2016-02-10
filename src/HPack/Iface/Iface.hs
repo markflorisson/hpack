@@ -100,13 +100,14 @@ of exposed abstract data types.
 module HPack.Iface.Iface
 ( PkgInterface(..)
 , ModInterface(..)
+, Modules(..)
 , Symbol(..)
 , DataCon(..)
 , TypeVar(..)
 , Kind(..)
-, Origin(..)
 , Type(..)
 , Visibility(..)
+, PkgName(..)
 , Name(..)
 , match
 ) where
@@ -122,20 +123,23 @@ import HPack.System.PkgDB (PkgDB, PkgId)
 import HPack.Monads
 import HPack.JSON
 
-type PkgLabel     = Int
 type PkgName      = String
 type Name         = String
 type ModuleName   = ModulePath
 
-type Dependencies = M.Map PkgLabel Modules
 type Modules      = M.Map ModuleName ModInterface
 
 data PkgInterface
     = PkgInterface
         { pkgName               :: PkgName
+        , pkgVersion            :: Version
         , providedModules       :: Modules
-        , dependencyLabeling    :: M.Map PkgLabel PkgName
-        , dependencies          :: Dependencies
+            -- ^ Interfaces for the modules provided by this package
+        , dependencies          :: [(PkgName, Modules)]
+            -- ^ package dependency requirements
+            -- This list may have duplicate entries for the same package name
+            -- whenever we have registered multiple requirements on the same
+            -- package without requiring an equality on package versions
         }
         deriving (Eq, Ord, Show, Generic)
 
@@ -149,14 +153,12 @@ data ModInterface
 data Symbol
     = DataType
         { symName   :: Name
-        , symOrigin :: Origin
         , typevars  :: [TypeVar]
         , datacons  :: [DataCon]
         }
         -- ^ abstract, newtype or data type definition.
     | TypeSynonym
         { symName   :: Name
-        , symOrigin :: Origin
         , kind      :: Kind
         , typevars  :: [TypeVar]
         , typ       :: Type
@@ -164,19 +166,16 @@ data Symbol
         -- ^ synonym of some other symbol
     | Fun
         { symName   :: Name
-        , symOrigin :: Origin
         , typ       :: Type
         }
         -- ^ symbol binding (function or constant)
     | ClassDef
         { symName   :: Name
-        , symOrigin :: Origin
         , bindings  :: S.Set Symbol
         }
         -- ^ type class declaration
     | ClassInst
         { symName   :: Name
-        , symOrigin :: Origin
         }
         -- ^ type class instance definition
     deriving (Eq, Ord, Show, Generic)
@@ -215,13 +214,6 @@ data Kind
     = Kind Type -- IfaceKind seems to be an alias of IfaceType in GHC
     deriving (Eq, Ord, Show, Generic)
 
-data Origin = Origin
-    { originPkg :: PkgName
-        -- ^ the package that exports the symbol
-    , originMod :: ModuleName
-        -- ^ path to exporting module
-    }
-    deriving (Eq, Ord, Show, Generic)
 
 instance ToJSON PkgInterface
 instance ToJSON ModInterface
@@ -232,7 +224,6 @@ instance ToJSON Type
 instance ToJSON TypeVar
 instance ToJSON Visibility
 instance ToJSON Kind
-instance ToJSON Origin
 
 instance FromJSON PkgInterface
 instance FromJSON ModInterface
@@ -243,7 +234,6 @@ instance FromJSON Type
 instance FromJSON TypeVar
 instance FromJSON Visibility
 instance FromJSON Kind
-instance FromJSON Origin
 
 
 data Mismatch
@@ -254,11 +244,10 @@ data Mismatch
 
 -- | Check whether the requirements of the first package interface
 -- are provided by the second package interface
-match :: PkgInterface -> PkgInterface -> PkgLabel -> Either Mismatch ()
-match dependent dependee dependeeLabel
-    | Just requiredModules <- M.lookup dependeeLabel (dependencies dependent)
-    , providedModules <- providedModules dependee
-        = matchModules requiredModules providedModules
+match :: Modules -> PkgInterface -> Either Mismatch ()
+match requiredModules dependee
+    | providedModules <- providedModules dependee
+    = matchModules requiredModules providedModules
     where
         matchModules :: Modules -> Modules -> Either Mismatch ()
         matchModules requiredModules providedModules =
